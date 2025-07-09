@@ -1,0 +1,1438 @@
+
+---
+title: "DEAKIN housing and transit accessibilty"
+runningheader: "DEAKIN housing and transit accessibilty" # only for pdf output
+subtitle: "Census SA1 and GFTS-based analysis" # only for html output
+author: "Dr James Reynolds"
+date: "`r Sys.Date()`"
+output:
+  tufte::tufte_html: default
+  tufte::tufte_handout:
+    citation_package: natbib
+    latex_engine: xelatex
+  tufte::tufte_book:
+    citation_package: natbib
+    latex_engine: xelatex
+bibliography: Deakin.bib
+link-citations: no
+---
+
+```{r setup, include=FALSE}
+library(tufte)
+library(tidyverse)
+library(tidytransit)
+library(sp)
+library(absmapsdata)
+library(ptinpoly)
+library(magrittr)
+library(ggplot2)
+library(sf)
+library(ASGS.foyer)
+library(raster)
+library(ggmap)
+library(units)
+
+# invalidate cache when the tufte version changes
+knitr::opts_chunk$set(cache.extra = packageVersion('tufte'))
+options(htmltools.dir.version = FALSE)
+```
+
+
+
+
+# 1.0 Introduction
+
+Accessibility and service frequency are key issues in public transport. Previous research developed a Supply Index for census districts, which could be calculated in Melbourne using a database of bus, tram and train stations and routes provided by the public transport authority [@currie2007identifying]. However, this index was developed prior to the introduction of the General Transit Feed Specification (GTFS), which provides a common, text-based format for the provision of transit timetable data.
+
+A question, therefore, is how to calculate the Supply Index using GTFS data, and what related findings might be made. This document addresses this by using the statistical programming language R [@R-base], the tidytransit package [@tidytransit2023] and other tools to develop code to calculate the Supply Index. The GTFS files for Melbourne [@Transport:2023aa] are used as test data. 
+
+The rest of this document is structured as follows: the next section discusses the research context of the Supply Index.  Section 3 explores the tidytransit package and the Melbourne GTFS file.  In Section 4 the Supply Index calculation is developed into R code. Section 5 presents results, followed by a brief discussion and conclusion in Section 6. 
+
+# 2.0 Research context
+
+The Supply Index^[![Supply Index formula](Supply_index.png)] was developed in @currie2007identifying. It uses thresholds for access at 400m for bus and tram stops, and 800m for railway stations.  These values are used in the calculation of the Area~Bn~ variable.The Area~CCD~ variable is based on the specific zone that is being examined^[In @currie2007identifying census districts were used.  Here the Australian Buraear of Statistics (ABS) Statistical Area 1 (SA1) zones will be used.].  The Service Level Measure (SL~Bn~) is the variable that needs to be extracted from the GTFS file. 
+
+# 3.0 Tidytransit package and GTFS data download
+
+The tidytransit package [@tidytransit2023] includes vignettes outlining features and use^[See https://r-transit.github.io/tidytransit/articles/introduction.html]. <!--- 
+This is based around using test data from New York City (NYC), as in the following. 
+
+# 3.1 New York City test data
+
+First, loading the NYC data and running the code that generates a departure timetable^[ See vignette at https://r-transit.github.io/tidytransit/articles/timetable.html].
+
+
+
+```{r load_nyc_data, echo=FALSE, echo=FALSE, fig.margin=TRUE, fig.cap=sprintf("Two plots in separate figure environments in the margin (the %s plot).", c("first", "second")), fig.width=3.5, fig.height=2.5, cache=TRUE}
+
+
+nyc <- read_gtfs("http://web.mta.info/developers/data/nyct/subway/google_transit.zip")
+
+local_gtfs_path <- system.file("extdata", 
+                               "google_transit_nyc_subway.zip", 
+                               package = "tidytransit")
+nyc <- read_gtfs(local_gtfs_path)
+#summary(nyc)
+#head(nyc$stops)
+#names(nyc)
+
+#Feed Validation Results
+#validation_result <- attr(nyc, "validation_result")
+#head(validation_result)
+
+
+```
+
+
+
+```{r departure_timetable, echo=FALSE, fig.fullwidth=FALSE, fig.cap="New York City departure timetable example", cache=TRUE}
+
+local_gtfs_path <- system.file("extdata", "google_transit_nyc_subway.zip", package = "tidytransit")
+gtfs <- read_gtfs(local_gtfs_path)
+# gtfs <- read_gtfs("http://web.mta.info/developers/data/nyct/subway/google_transit.zip")
+
+# get the id of the first stop in the trip's stop sequence
+first_stop_id <- gtfs$stop_times %>% 
+  group_by(trip_id) %>% 
+  summarise(stop_id = stop_id[which.min(stop_sequence)])
+
+# join with the stops table to get the stop_name
+first_stop_names <- left_join(first_stop_id, gtfs$stops, by="stop_id")
+
+# rename the first stop_name as trip_origin
+trip_origins <- first_stop_names %>% dplyr::select(trip_id, trip_origin = stop_name)
+
+# join the trip origins back onto the trips
+gtfs$trips <- left_join(gtfs$trips, trip_origins, by = "trip_id")
+
+#  gtfs$trips %>%
+#  dplyr::select(route_id, trip_origin) %>%
+#  head()
+
+if(!exists("trip_headsign", where = gtfs$trips)) {
+  # get the last id of the trip's stop sequence
+  trip_headsigns <- gtfs$stop_times %>% 
+    group_by(trip_id) %>% 
+    summarise(stop_id = stop_id[which.max(stop_sequence)]) %>% 
+    left_join(gtfs$stops, by="stop_id") %>% dplyr::select(trip_id, trip_headsign.computed = stop_name)
+
+  # assign the headsign to the gtfs object 
+  gtfs$trips <- left_join(gtfs$trips, trip_headsigns, by = "trip_id")
+}
+
+stop_ids <- gtfs$stops %>% 
+  filter(stop_name == "Times Sq - 42 St") %>% 
+  dplyr::select(stop_id)
+
+departures <- stop_ids %>% 
+  inner_join(gtfs$stop_times %>% 
+               dplyr::select(trip_id, arrival_time, 
+                      departure_time, stop_id), 
+             by = "stop_id")
+
+departures <- departures %>% 
+  left_join(gtfs$trips %>% 
+              dplyr::select(trip_id, route_id, 
+                     service_id, trip_headsign, 
+                     trip_origin), 
+            by = "trip_id") 
+
+departures <- departures %>% 
+  left_join(gtfs$routes %>% 
+              dplyr::select(route_id, 
+                     route_short_name), 
+            by = "route_id")
+
+#departures %>% 
+#  dplyr::select(arrival_time,
+#         departure_time,
+#         trip_headsign,trip_origin,
+#         route_id) %>%
+#  head() %>%
+#  knitr::kable()
+
+# head(gtfs$.$dates_services)
+
+
+services_on_180823 <- gtfs$.$dates_services %>% 
+  filter(date == "2018-08-23") %>% dplyr::select(service_id)
+
+departures_180823 <- departures %>% 
+  inner_join(services_on_180823, by = "service_id")
+
+# departures_180823 %>%
+#  arrange(departure_time, stop_id, route_short_name) %>% 
+#  dplyr::select(departure_time, stop_id, route_short_name, trip_headsign) %>% 
+#  filter(departure_time >= hms::hms(hours = 7)) %>% 
+#  filter(departure_time < hms::hms(hours = 7, minutes = 10)) %>% 
+#  knitr::kable()
+
+route_colors <- gtfs$routes %>% dplyr::select(route_id, route_short_name, route_color)
+route_colors$route_color[which(route_colors$route_color == "")] <- "454545"
+route_colors <- setNames(paste0("#", route_colors$route_color), route_colors$route_short_name)
+
+ggplot(departures_180823) + theme_bw() +
+  geom_point(aes(y=trip_headsign, x=departure_time, color = route_short_name), size = 0.2) +
+  scale_x_time(breaks = seq(0, max(as.numeric(departures$departure_time)), 3600), 
+               labels = scales::time_format("%H:%M")) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(legend.position = "bottom") +
+  scale_color_manual(values = route_colors) +
+  labs(title = "Departures from Times Square on 08/23/18")
+
+
+departures_180823_sub_7to8 <- departures_180823 %>% 
+  filter(stop_id %in% c("127N", "127S")) %>% 
+  filter(departure_time >= hms::hms(hours = 7) & departure_time <= hms::hms(hour = 8))
+
+ggplot(departures_180823_sub_7to8) + theme_bw() +
+  geom_point(aes(y=trip_headsign, x=departure_time, color = route_short_name), size = 1) +
+  scale_x_time(breaks = seq(7*3600, 9*3600, 300), labels = scales::time_format("%H:%M")) +
+  scale_y_discrete(drop = F) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(legend.position = "bottom") +
+  labs(title = "Departures from Times Square on 08/23/18") +
+  facet_wrap(~stop_id, ncol = 1)
+```
+
+This all works as expected, regenerating the NYC analysis^[ See vignette at https://r-transit.github.io/tidytransit/articles/timetable.html].
+
+Next step will be to load the Melbourne GTFS data and try it with that. 
+--->
+
+# 3.2 Melbourne GTFS data 
+Unfortunately, the Melbourne GTFS data does not appear to be directly downloadable by the tidytransit package^[This is because, rather than providing a single gtfs.zip file containing the various text files (e.g. stops.txt), the Melbourne GTFS file contains 10 directories, named 1-8, 10 and 11, each of which contains a gtfs.zip file for a single mode.]. Regardless, the Melbourne can be loaded manually with the read_gtfs tool provided in tidy transit.
+
+```{r load_melbourne_data, echo=FALSE}
+##comment out as analysis done, to save on memory
+#mel1 <- read_gtfs("data/1google_transit.zip")
+#mel2 <- read_gtfs("data/2google_transit.zip")
+mel3 <- read_gtfs("data/3google_transit.zip")
+mel4 <- read_gtfs("data/4google_transit.zip")
+#mel5 <- read_gtfs("data/5google_transit.zip")
+#mel6 <- read_gtfs("data/6google_transit.zip")
+#mel7 <- read_gtfs("data/7google_transit.zip")
+#mel8 <- read_gtfs("data/8google_transit.zip")
+#mel10 <- read_gtfs("data/10google_transit.zip")
+#mel11 <- read_gtfs("data/11google_transit.zip")
+
+#summary(mel1)
+
+```
+
+Then the departure timetable code can be run, in this case dplyr::selecting Southern Cross Station and April 27, 2023^[Note, I've also converted the code from the tidytransit vignette into functions so that it can be run on any date, stop or time period.]. 
+
+```{r departure_timetable_as_a_function, echo=FALSE, fig.fullwidth=TRUE, fig.cap="Melbourne, Southern Cross departure timetable for April 27, 2023", cache=TRUE}
+
+#First turn the departure timetable code into a function
+departure_timetable_function <- function(gtfs, stop_to_show, date_to_show){
+  # get the id of the first stop in the trip's stop sequence
+  first_stop_id <- gtfs$stop_times %>% 
+    group_by(trip_id) %>% 
+    summarise(stop_id = stop_id[which.min(stop_sequence)])
+
+  # join with the stops table to get the stop_name
+  first_stop_names <- left_join(first_stop_id, gtfs$stops, by="stop_id")
+
+  # rename the first stop_name as trip_origin
+  trip_origins <- first_stop_names %>% dplyr::select(trip_id, trip_origin = stop_name)
+
+  # join the trip origins back onto the trips
+  gtfs$trips <- left_join(gtfs$trips, trip_origins, by = "trip_id")
+
+  #gtfs$trips %>%
+  #  dplyr::select(route_id, trip_origin) %>%
+  #  head()
+
+  if(!exists("trip_headsign", where = gtfs$trips)) {
+    # get the last id of the trip's stop sequence
+    trip_headsigns <- gtfs$stop_times %>% 
+      group_by(trip_id) %>% 
+      summarise(stop_id = stop_id[which.max(stop_sequence)]) %>% 
+      left_join(gtfs$stops, by="stop_id") %>% dplyr::select(trip_id, trip_headsign.computed = stop_name)
+
+    # assign the headsign to the gtfs object 
+    gtfs$trips <- left_join(gtfs$trips, trip_headsigns, by = "trip_id")
+  }
+
+  stop_ids <- gtfs$stops %>% 
+    filter(stop_name == stop_to_show) %>% 
+    dplyr::select(stop_id)
+
+  departures <- stop_ids %>% 
+    inner_join(gtfs$stop_times %>% 
+                 dplyr::select(trip_id, arrival_time, 
+                        departure_time, stop_id), 
+               by = "stop_id")
+  
+  departures <- departures %>% 
+    left_join(gtfs$trips %>% 
+                dplyr::select(trip_id, route_id, 
+                       service_id, trip_headsign, 
+                       trip_origin), 
+              by = "trip_id") 
+  
+  departures <- departures %>% 
+    left_join(gtfs$routes %>% 
+                dplyr::select(route_id, 
+                       route_short_name), 
+              by = "route_id")
+
+  #departures %>% 
+  #  dplyr::select(arrival_time,
+  #         departure_time,
+  #         trip_headsign,trip_origin,
+  #         route_id) %>%
+  #  head() %>%
+  #  knitr::kable()
+
+  #head(gtfs$.$dates_services)
+
+
+  services_on_180823 <- gtfs$.$dates_services %>% 
+    filter(date == date_to_show) %>% dplyr::select(service_id)
+
+  departures_180823 <- departures %>% 
+    inner_join(services_on_180823, by = "service_id")
+
+#  departures_180823 %>%
+ #   arrange(departure_time, stop_id, route_short_name) %>% 
+  #  dplyr::select(departure_time, stop_id, route_short_name, trip_headsign) %>% 
+   # filter(departure_time >= hms::hms(hours = 7)) %>% 
+   # filter(departure_time < hms::hms(hours = 7, minutes = 10)) %>% 
+  #  knitr::kable()
+
+  route_colors <- gtfs$routes %>% dplyr::select(route_id, route_short_name, route_color)
+  route_colors$route_color[which(route_colors$route_color == "")] <- "454545"
+  route_colors <- setNames(paste0("#", route_colors$route_color), route_colors$route_short_name)
+
+  output <- list(
+      ggplot(departures_180823) + theme_bw() +
+      geom_point(aes(y=trip_headsign, x=departure_time, color = route_short_name), size = 0.2) +
+      scale_x_time(breaks = seq(0, max(as.numeric(departures$departure_time)), 3600), 
+                   labels = scales::time_format("%H:%M")) +
+      theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+      theme(legend.position = "bottom") +
+      scale_color_manual(values = route_colors) 
+  #    labs(title = paste("Departures from", stop_to_show, "on", date_to_show))
+  #add a return value to provide the number of services shown in the graph as an output
+          , nrow(departures_180823)
+      )
+  #return list with graph and the number of services. 
+  return(output)
+  
+}
+###comment out to save on memory
+##Southern_cross_230427 <- departure_timetable_function(gtfs=mel1, stop_to_show="Southern Cross Railway Station (Melbourne City)", date_to_show="2023-04-27")
+
+##Southern_cross_230427[1]
+
+```
+<!---
+
+The above graph shows the `r Southern_cross_230427[2]` movements at Southern Cross on April 27, 2023.  
+
+However, this code does not appear to correctly identify that the services heading towards "Melbourne" and "City" are terminating at Southern Cross, rather than departing from there.  Ideally, therefore, what is needed is code that separates arrivals from departures at termini.  
+
+
+--->
+
+```{r departure_timetable_as_a_function_fix_terminus, echo=FALSE, fig.fullwidth=TRUE, fig.cap="Melbourne, Southern Cross departure timetable for April 27, 2023", cache=TRUE}
+
+#First turn the departure timetable code into a function
+departure_timetable_function <- function(gtfs, stop_to_show, date_to_show){
+  # get the id of the first stop in the trip's stop sequence
+  first_stop_id <- gtfs$stop_times %>% 
+    group_by(trip_id) %>% 
+    summarise(stop_id = stop_id[which.min(stop_sequence)])
+
+  # join with the stops table to get the stop_name
+  first_stop_names <- left_join(first_stop_id, gtfs$stops, by="stop_id")
+
+  # rename the first stop_name as trip_origin
+  trip_origins <- first_stop_names %>% dplyr::select(trip_id, trip_origin = stop_name)
+
+  # join the trip origins back onto the trips
+  gtfs$trips <- left_join(gtfs$trips, trip_origins, by = "trip_id")
+
+  
+  #### get the id of the last stop in the trip's stop sequence
+  last_stop_id <- gtfs$stop_times %>% 
+    group_by(trip_id) %>% 
+    summarise(stop_id = stop_id[which.max(stop_sequence)])
+
+  # join with the stops table to get the stop_name
+  last_stop_names <- left_join(last_stop_id, gtfs$stops, by="stop_id")
+
+  # rename the last stop_name as trip_destination
+  trip_destinations <- last_stop_names %>% dplyr::select(trip_id, trip_destination = stop_name)
+
+  # join the trip destinations back onto the trips
+  gtfs$trips <- left_join(gtfs$trips, trip_destinations, by = "trip_id")
+
+  
+  #gtfs$trips %>%
+  #  dplyr::select(route_id, trip_origin) %>%
+  #  head()
+
+  if(!exists("trip_headsign", where = gtfs$trips)) {
+    # get the last id of the trip's stop sequence
+    trip_headsigns <- gtfs$stop_times %>% 
+      group_by(trip_id) %>% 
+      summarise(stop_id = stop_id[which.max(stop_sequence)]) %>% 
+      left_join(gtfs$stops, by="stop_id") %>% dplyr::select(trip_id, trip_headsign.computed = stop_name)
+
+  #create a new field with 
+  trip_destination <- gtfs$stop_times %>% 
+      group_by(trip_id) %>% 
+      summarise(stop_id = stop_id[which.max(stop_sequence)]) %>% 
+      left_join(gtfs$stops, by="stop_id") %>% dplyr::select(trip_id, trip_headsign.computed = stop_name)
+
+    
+    
+    # assign the headsign to the gtfs object 
+    gtfs$trips <- left_join(gtfs$trips, trip_headsigns, by = "trip_id")
+  }
+
+  stop_ids <- gtfs$stops %>% 
+    filter(stop_name == stop_to_show) %>% 
+    dplyr::select(stop_id)
+
+  departures <- stop_ids %>% 
+    inner_join(gtfs$stop_times %>% 
+                 dplyr::select(trip_id, arrival_time, 
+                        departure_time, stop_id), 
+               by = "stop_id")
+  
+  departures <- departures %>% 
+    left_join(gtfs$trips %>% 
+                dplyr::select(trip_id, route_id, 
+                       service_id, trip_headsign, 
+                       trip_origin, 
+                       trip_destination), 
+              by = "trip_id") 
+  
+  departures <- departures %>% 
+    left_join(gtfs$routes %>% 
+                dplyr::select(route_id, 
+                       route_short_name), 
+              by = "route_id")
+
+  #remove trips where last stop is equal to the stop_to_show, as these stops terminate at this stop and so do not depart
+  departures <- departures %>% 
+      filter(trip_destination != stop_to_show)
+  
+  
+  #departures %>% 
+  #  dplyr::select(arrival_time,
+  #         departure_time,
+  #         trip_headsign,trip_origin,
+  #         route_id) %>%
+  #  head() %>%
+  #  knitr::kable()
+
+  #head(gtfs$.$dates_services)
+
+
+  services_on_180823 <- gtfs$.$dates_services %>% 
+    filter(date == date_to_show) %>% dplyr::select(service_id)
+
+  departures_180823 <- departures %>% 
+    inner_join(services_on_180823, by = "service_id")
+
+#  departures_180823 %>%
+ #   arrange(departure_time, stop_id, route_short_name) %>% 
+  #  dplyr::select(departure_time, stop_id, route_short_name, trip_headsign) %>% 
+   # filter(departure_time >= hms::hms(hours = 7)) %>% 
+   # filter(departure_time < hms::hms(hours = 7, minutes = 10)) %>% 
+  #  knitr::kable()
+
+  route_colors <- gtfs$routes %>% dplyr::select(route_id, route_short_name, route_color)
+  route_colors$route_color[which(route_colors$route_color == "")] <- "454545"
+  route_colors <- setNames(paste0("#", route_colors$route_color), route_colors$route_short_name)
+
+  output <- list(
+      ggplot(departures_180823) + theme_bw() +
+      geom_point(aes(y=trip_destination, x=departure_time, color = route_short_name), size = 0.2) +
+      scale_x_time(breaks = seq(0, max(as.numeric(departures$departure_time)), 3600), 
+                   labels = scales::time_format("%H:%M")) +
+      theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+      theme(legend.position = "bottom") +
+      scale_color_manual(values = route_colors) 
+  #    labs(title = paste("Departures from", stop_to_show, "on", date_to_show))
+  #add a return value to provide the number of services shown in the graph as an output
+          , nrow(departures_180823)
+      )
+  #return list with graph and the number of services. 
+  return(output)
+  
+}
+##comment out to save memory
+#Southern_cross_230427 <- departure_timetable_function(gtfs=mel1, stop_to_show="Southern Cross Railway Station (Melbourne City)", date_to_show="2023-04-27")
+
+#Southern_cross_230427[1]
+```
+
+<!---
+
+The above shows the `r Southern_cross_230427 [2]` departures from Southern Cross on April 27, 2023, showing only services that do not terminate at Southern Cross and also showing by terminating station rather than line. 
+--->
+
+
+# 4.0 Supply Index calculation
+There are three components to the Supply Index calculation: Area~Bn~ variable, Area~CCD~ and the Service Level Measure (SL~Bn~).  Functions for caluculating these are developed in the following. 
+
+# 4.1 Service Level Measure
+
+The code from the tidytransit vignette calculates the number of departures from a stop for a given day or part of a day.  Therefore, this code needs to be adjusted to perform similar calculations, but for arrivals rather than departures, and for a period of one week rather than one day.  
+
+
+```{r arrival_timetable_as_a_function, echo=FALSE, fig.fullwidth=TRUE, fig.cap="Melbourne, Southern Cross arrival timetable for April 27, 2023", cache=TRUE}
+
+
+#First turn the departure timetable code into a function
+arrival_timetable_function <- function(gtfs, stop_to_show, date_to_show){
+  # get the id of the first stop in the trip's stop sequence
+  first_stop_id <- gtfs$stop_times %>% 
+    group_by(trip_id) %>% 
+    summarise(stop_id = stop_id[which.min(stop_sequence)])
+
+  # join with the stops table to get the stop_name
+  first_stop_names <- left_join(first_stop_id, gtfs$stops, by="stop_id")
+
+  # rename the first stop_name as trip_origin
+  trip_origins <- first_stop_names %>% dplyr::select(trip_id, trip_origin = stop_name)
+
+  # join the trip origins back onto the trips
+  gtfs$trips <- left_join(gtfs$trips, trip_origins, by = "trip_id")
+
+  
+  #### get the id of the last stop in the trip's stop sequence
+  last_stop_id <- gtfs$stop_times %>% 
+    group_by(trip_id) %>% 
+    summarise(stop_id = stop_id[which.max(stop_sequence)])
+
+  # join with the stops table to get the stop_name
+  last_stop_names <- left_join(last_stop_id, gtfs$stops, by="stop_id")
+
+  # rename the last stop_name as trip_destination
+  trip_destinations <- last_stop_names %>% dplyr::select(trip_id, trip_destination = stop_name)
+
+  # join the trip destinations back onto the trips
+  gtfs$trips <- left_join(gtfs$trips, trip_destinations, by = "trip_id")
+
+  
+  #gtfs$trips %>%
+  #  dplyr::select(route_id, trip_origin) %>%
+  #  head()
+
+  if(!exists("trip_headsign", where = gtfs$trips)) {
+    # get the last id of the trip's stop sequence
+    trip_headsigns <- gtfs$stop_times %>% 
+      group_by(trip_id) %>% 
+      summarise(stop_id = stop_id[which.max(stop_sequence)]) %>% 
+      left_join(gtfs$stops, by="stop_id") %>% dplyr::select(trip_id, trip_headsign.computed = stop_name)
+
+  #create a new field with 
+  trip_destination <- gtfs$stop_times %>% 
+      group_by(trip_id) %>% 
+      summarise(stop_id = stop_id[which.max(stop_sequence)]) %>% 
+      left_join(gtfs$stops, by="stop_id") %>% dplyr::select(trip_id, trip_headsign.computed = stop_name)
+
+    
+    
+    # assign the headsign to the gtfs object 
+    gtfs$trips <- left_join(gtfs$trips, trip_headsigns, by = "trip_id")
+  }
+
+  stop_ids <- gtfs$stops %>% 
+    filter(stop_name == stop_to_show) %>% 
+    dplyr::select(stop_id)
+
+  departures <- stop_ids %>% 
+    inner_join(gtfs$stop_times %>% 
+                 dplyr::select(trip_id, arrival_time, 
+                        departure_time, stop_id), 
+               by = "stop_id")
+  
+  departures <- departures %>% 
+    left_join(gtfs$trips %>% 
+                dplyr::select(trip_id, route_id, 
+                       service_id, trip_headsign, 
+                       trip_origin, 
+                       trip_destination), 
+              by = "trip_id") 
+  
+  departures <- departures %>% 
+    left_join(gtfs$routes %>% 
+                dplyr::select(route_id, 
+                       route_short_name), 
+              by = "route_id")
+
+  #remove trips where first stop is equal to the stop_to_show, as these stops originate at this stop and so do not depart
+  departures <- departures %>% 
+      filter(trip_origin != stop_to_show)
+  
+  
+  #departures %>% 
+  #  dplyr::select(arrival_time,
+  #         departure_time,
+  #         trip_headsign,trip_origin,
+  #         route_id) %>%
+  #  head() %>%
+  #  knitr::kable()
+
+  #head(gtfs$.$dates_services)
+
+
+  services_on_180823 <- gtfs$.$dates_services %>% 
+    filter(date == date_to_show) %>% dplyr::select(service_id)
+
+  departures_180823 <- departures %>% 
+    inner_join(services_on_180823, by = "service_id")
+
+#  departures_180823 %>%
+ #   arrange(departure_time, stop_id, route_short_name) %>% 
+  #  dplyr::select(departure_time, stop_id, route_short_name, trip_headsign) %>% 
+   # filter(departure_time >= hms::hms(hours = 7)) %>% 
+   # filter(departure_time < hms::hms(hours = 7, minutes = 10)) %>% 
+  #  knitr::kable()
+
+  route_colors <- gtfs$routes %>% dplyr::select(route_id, route_short_name, route_color)
+  route_colors$route_color[which(route_colors$route_color == "")] <- "454545"
+  route_colors <- setNames(paste0("#", route_colors$route_color), route_colors$route_short_name)
+
+  #No need for list of outputs anymore, as the graphs are no longer needed
+  #output <- list(
+   #   ggplot(departures_180823) + theme_bw() +
+    #  geom_point(aes(y=trip_origin, x=arrival_time, color = route_short_name), size = 0.2) +
+     # scale_x_time(breaks = seq(0, max(as.numeric(departures$departure_time)), 3600), 
+      #             labels = scales::time_format("%H:%M")) +
+      #theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+      #theme(legend.position = "bottom") +
+      #scale_color_manual(values = route_colors) 
+  #    labs(title = paste("Departures from", stop_to_show, "on", date_to_show))
+  #add a return value to provide the number of services shown in the graph as an output
+       #   , nrow(departures_180823)
+    #  )
+  #return list with graph and the number of services. 
+  return(departures_180823)
+  
+}
+##comment out to save memory
+#arrivals_southern_cross_230427 <- arrival_timetable_function(gtfs=mel1, stop_to_show="Southern Cross Railway Station (Melbourne City)", date_to_show="2023-04-27")
+
+#head(arrivals_southern_cross_230427)
+
+
+
+```
+
+<!---
+
+The above shows the `r nrow(arrivals_southern_cross_230427)` arrivals to Southern Cross Station. Trying another stop gives:
+```{r arrival_timetable_Swan_Hill, echo=FALSE, fig.fullwidth=TRUE, fig.cap="Melbourne, Swan Hill railway station arrival timetable for April 27, 2023", cache=TRUE}
+arrivals_swan_hill_230427 <- arrival_timetable_function(gtfs=mel1, stop_to_show="Swan Hill Railway Station (Swan Hill)", date_to_show="2023-04-27")
+
+head(arrivals_swan_hill_230427)
+
+
+```
+
+ ...the `r nrow(arrivals_swan_hill_230427)` arrivals into Swan Hill. 
+ --->
+ 
+ Next, create a function that calculates the number of arrivals into a stop for a seven day period. 
+
+```{r arrival_timetable_Swan_Hill_7_day, echo=FALSE, fig.fullwidth=TRUE, fig.cap="Swan Hill arrival timetable for week of April 27, 2023", cache=TRUE}
+
+arrival_seven_day_function <- function(gtfs, stop_to_show, first_date){
+  day1 <- arrival_timetable_function(gtfs=gtfs, stop_to_show=stop_to_show, date_to_show=first_date)
+  day2 <- arrival_timetable_function(gtfs=gtfs, stop_to_show=stop_to_show, date_to_show=(as.Date(first_date) + 1))
+  day3 <- arrival_timetable_function(gtfs=gtfs, stop_to_show=stop_to_show, date_to_show=(as.Date(first_date) + 2))
+  day4 <- arrival_timetable_function(gtfs=gtfs, stop_to_show=stop_to_show, date_to_show=(as.Date(first_date) + 3))
+  day5 <- arrival_timetable_function(gtfs=gtfs, stop_to_show=stop_to_show, date_to_show=(as.Date(first_date) + 4))
+  day6 <- arrival_timetable_function(gtfs=gtfs, stop_to_show=stop_to_show, date_to_show=(as.Date(first_date) + 5))
+  day7 <- arrival_timetable_function(gtfs=gtfs, stop_to_show=stop_to_show, date_to_show=(as.Date(first_date) + 6))
+  
+  week <- list(day1, day2, day3, day4, day5, day6, day7)
+  
+  return(week)
+
+  }
+ 
+###comment out to save memory 
+#swan_hill_week_starting_230427 <- arrival_seven_day_function(gtfs=mel1, stop_to_show="Swan Hill Railway Station (Swan Hill)", first_date="2023-04-27")
+
+```
+
+<!---
+
+This outputs a total of `r nrow(swan_hill_week_starting_230427[[1]]) + nrow(swan_hill_week_starting_230427[[2]]) + nrow(swan_hill_week_starting_230427[[3]]) + nrow(swan_hill_week_starting_230427[[4]]) + nrow(swan_hill_week_starting_230427[[5]]) + nrow(swan_hill_week_starting_230427[[6]]) + nrow(swan_hill_week_starting_230427[[7]])` services arriving at Swan Hill railway station per week. 
+
+Repeating this calculation for Southern Cross provides:
+
+```{r arrival_timetable_Southern_Cross_7_day, echo=FALSE, fig.fullwidth=TRUE, fig.cap="Melbourne, Southern Cross arrival timetable for April 27-30, 2023", cache=TRUE}
+
+southern_cross_week_starting_230427 <- arrival_seven_day_function(gtfs=mel1, stop_to_show="Southern Cross Railway Station (Melbourne City)", first_date="2023-04-27")
+
+head(southern_cross_week_starting_230427[[1]])
+head(southern_cross_week_starting_230427[[2]])
+head(southern_cross_week_starting_230427[[3]])
+head(southern_cross_week_starting_230427[[4]])
+
+
+```
+
+This outputs a total of `r formatC(nrow(southern_cross_week_starting_230427[[1]]) + nrow(southern_cross_week_starting_230427[[2]]) + nrow(southern_cross_week_starting_230427[[3]]) + nrow(southern_cross_week_starting_230427[[4]]) + nrow(southern_cross_week_starting_230427[[5]]) + nrow(southern_cross_week_starting_230427[[6]]) + nrow(southern_cross_week_starting_230427[[7]]), big.mark=",")` services arriving at Southern Cross railway station per week. The timetables might suggest that April 29 and 30 were non-weekdays^[April 29 was a Saturday.]. 
+
+--->
+
+
+# 4.2 Area~Bn~ variable 
+
+As above, Area~Bn~ is 400m for bus and tram stops, and 800m for railway stations. Mode is described in the GTFS format using the 'route-type' variable in the 'route.txt' file as shown below^[Extract from GTFS routes specification [@GTFS_schedule_reference].]: ![GTFS mode codes](GTFS_mode_reference.png). 
+This is not directly associated with the stop id, but as the Melbourne GTFS data is split up by mode anyway it should be possible to simply do the Area~Bn~ calculations individually for each stop and mode combination.  
+
+# 4.3 Area~CCD~ variable
+The Area~CCD~ variable is the square kilometre spatial area of the spatial zone that is under consideration. This number should be available from the source^[e.g. If using SA1 census areas, the land area is provided by the Australia Bureau of Statistics (ABS) together with the shape files.]. 
+
+However, the complicating factor will be to figure out how much of each area associated with each stop is within which each spatial zone. However, there appear to be plenty of tools in R, including the sp package [@spatial_data_in_R, @applied_spatial_data_analysis_with_R] and an ABS data manipulation package called absmapsdata [@absmapsdata]^[See https://github.com/wfmackey/absmapsdata], which is used below to download and plot the latest Statistical Areas Level 1 files[@SA1_2021].
+
+
+
+```{r load_abs_data, echo=FALSE, fig.fullwidth=TRUE, fig.cap="Melbourne SA1 map", cache=TRUE}
+
+#Load SA1 data
+sa1_map_data <- sa12021
+
+#Map Greater Melbourne SA1 areas
+map <- sa1_map_data %>%
+  filter(gcc_name_2021 == "Greater Melbourne") %>%   # let's just look Melbourne
+  ggplot() +
+  geom_sf(aes(geometry = geometry,  # use the geometry variable
+              fill = areasqkm_2021),     # fill by area size
+          lwd = 0,                  # remove borders
+          show.legend = TRUE) +    # keep legend
+ # geom_point(aes(cent_long,
+  #               cent_lat),        # use the centroid long (x) and lats (y)
+   #          colour = "white") +    # make the points white
+  theme_void() +                    # clears other plot elements
+  coord_sf()
+
+map
+
+```
+
+
+The GTFS files include stop locations in the stops.txt file, under the stop_lat and stop_long variables. The ABS map files store the boundaries as a dataframe in the geometry variable. The ptinpoly R package [@ptinpoly] appears to be the appropriate tool to figure out which stops are within which SA1 boundary. Running the example code^[Page 6-7, https://cran.r-project.org/web/packages/ptinpoly/ptinpoly.pdf]:
+
+```{r ptinpoly_example, echo=FALSE, fig.margin=TRUE, fig.cap="ptinpoly example code for pip2d function", cache=TRUE}
+# Load sample data defining a comb, spiral, and fractal.
+data(comb)
+data(spiral)
+data(fractal)
+
+# Plot the comb, spiral, and fractal.
+plot(rbind(comb,comb[1,]),type="l")
+plot(rbind(spiral,spiral[1,]),type="l")
+plot(rbind(fractal,fractal[1,]),type="l")
+
+# Generate 3333 random test points.
+set.seed(1902)
+n <- 3333
+x1 <- rnorm(n) ; x2 <- rnorm(n)
+X <- cbind(x1,x2)
+queries <- as.matrix(X)
+# Check whether test points are contained in the comb, spiral, and factal.
+# Most of these points will lie outside the polygons.
+containment1 <- pip2d(comb,queries);
+containment2 <- pip2d(spiral,queries);
+containment3 <- pip2d(fractal,queries);
+
+```
+
+The output is interpreted as follows: ![pip2d output codes](pip2d_outputcodes.png).  Therefore, what is needed is to test each of the stop locations against each of the SA1 geometries, and then return the SA1 code or name for whichever SA1 the stop is in.  An example is provided here^[https://gis.stackexchange.com/a/343477], but I wasn't able to get that to work.  
+
+But, in the meantime, I found this comment^[https://gis.stackexchange.com/a/261516], which references the ASGS R package [@ASGS_foyer]. However, the install function (install_ASGS()) does not appear to work.  
+
+```{r ASGS_foyer, echo=FALSE, fig.margin=TRUE, fig.cap="ptinpoly example code for pip2d function", cache=TRUE}
+#See https://cran.r-project.org/web/packages/ASGS.foyer/ASGS.foyer.pdf
+#install_ASGS()
+
+
+#Example
+latlon2SA(-35.3, 149.2, to = "STE", yr = "2016")
+
+#latlon2SA(-35.3, 149.2, to = "SA2", yr = "2016")
+
+
+
+```
+
+Next try this comment's^[https://gis.stackexchange.com/a/343479] code.
+
+
+
+```{r sf_approach, echo=FALSE, fig.margin=TRUE, fig.cap="ptinpoly example code for pip2d function", cache=TRUE}
+#See https://cran.r-project.org/web/packages/ASGS.foyer/ASGS.foyer.pdf
+#install_ASGS()
+
+pnts <- tibble(x = -34.92, y = 138.68)
+
+library(sf)
+# Shapefile from ABS: 
+# https://www.abs.gov.au/AUSSTATS/abs@.nsf/DetailsPage/1270.0.55.004July%202016?OpenDocument
+map = read_sf("data/SA1_2021.shp")
+
+pnts_sf <- st_as_sf(pnts, coords = c('y', 'x'), crs = st_crs(map))
+
+pnts <- pnts_sf %>% mutate(
+  intersection = as.integer(st_intersects(geometry, map))
+  , area = if_else(is.na(intersection), '', map$SA1_CODE21[intersection])
+) 
+
+pnts
+
+
+
+```
+
+That works.  The SA1 area code is returned in the area column.  Next step is to adjust this code so that it will report the SA1 area code for all stops in a GTFS file.  
+
+```{r gtfs_SA1, echo=FALSE, fig.margin=TRUE, fig.cap="ptinpoly example code for pip2d function", cache=TRUE}
+
+
+map = read_sf("data/SA1_2021.shp")
+
+add_2021_ABS_names_to_gtfs_stops_function <- function(gtfs){
+  pnts <- tibble(stop_lat = gtfs$stops$stop_lat, stop_lon = gtfs$stops$stop_lon)
+  pnts_sf <- st_as_sf(pnts, coords = c('stop_lon', 'stop_lat'), crs = st_crs(map))
+
+  pnts <- pnts_sf %>% mutate(
+    intersection = as.integer(st_intersects(geometry, map)), 
+    area = if_else(is.na(intersection), '', map$SA1_CODE21[intersection])
+  ) 
+  gtfs$stops$SA1_CODE21 <- pnts$area
+  gtfs$stops <- dplyr::left_join(gtfs$stops, map, by = "SA1_CODE21")
+  return(gtfs$stops)
+}
+
+##comment out to save memory
+#mel1$stops <- add_2021_ABS_names_to_gtfs_stops_function(mel1)
+
+```
+
+<!--
+
+With that function the gtfs stops dataframe now also contains all of the ABS SA1 data for each stop^[For example `r mel1$stops$stop_name[1]` is in SA1 zone `r mel1$stops$SA1_CODE21[1]`, which has an area of `r mel1$stops$AREASQKM21[1]`]
+
+This matches the maps on the ABS website^[![ABS Wallan](Wallan_low_scale.png)]. However, zooming in closer to the station itself indicates that Wallan station itself is virtually on the boundary with SA1 area 20904122435^[![GTFS mode codes](Wallan_high_scale.png)]. Hence, when calculating the Supply Index, the Area~CCD~ variable and the Area~Bn~ variable there will be a need to allocate a fraction of each to the different SA1 zones. 
+
+What will be needed is another variable in the stops dataset that has a list of SA1 zones that are within  the 400-800m area around each stop (depending on stop type) and the result of a Area~Bn~ divided by Area~CCD~ calculation. 
+
+The first step needed will be to define the Area~Bn~ buffer zones around each stop.  This^[https://gis.stackexchange.com/questions/229453/create-a-circle-of-defined-radius-around-a-point-and-then-find-the-overlapping-a] appears to be relevant.  
+
+--->
+
+
+```{r buffers_example, echo=FALSE, fig.margin=TRUE, fig.cap="buffers example that didn't plot", cache=TRUE}
+library(raster)
+library(tidyverse)
+library(sf)
+#> Linking to GEOS 3.5.0, GDAL 2.1.1, proj.4 4.9.3
+
+# convert to sf format
+dat_ticino_sf <- getData(name = "GADM", 
+                         country = "CHE", 
+                         level = 3) %>%
+  # convert to simple features
+  sf::st_as_sf() %>%
+  # Filter down to Ticino
+  dplyr::filter(NAME_1 == "Ticino") %>% 
+  st_transform(3035) # Reproject to EPSG:3035 as mentioned above
+
+mean_lat <- 46.07998
+sd_lat <- 0.1609196
+mean_long <- 8.931849
+sd_long <-  0.1024659
+
+set.seed(42)
+dat_sim <- data.frame(lat = rnorm(500, mean = mean_lat, sd = sd_lat),
+                      long = rnorm(500, mean = mean_long, sd = sd_long))
+
+# Convert to sf, set the crs to EPSG:4326 (lat/long), 
+# and transform to EPSG:3035
+dat_sf <- st_as_sf(dat_sim, coords = c("long", "lat"), crs = 4326) %>% 
+  st_transform(3035)
+
+# Buffer circles by 100m
+dat_circles <- st_buffer(dat_sf, dist = 100)
+
+# Intersect the circles with the polygons
+ticino_int_circles <- st_intersection(dat_ticino_sf, dat_circles)
+#> Warning: attribute variables are assumed to be spatially constant
+#> throughout all geometries
+
+## Plot a zoomed in map of polygons and overlay intersected circles to double check:
+## (I assumed NAME_3 is the best unique identifier for the polygons)
+bb <- st_bbox(ticino_int_circles)
+plot(dat_ticino_sf[, "NAME_3"], 
+     xlim = c(mean(c(bb["xmin"], bb["xmax"])) - 1000, 
+              mean(c(bb["xmin"], bb["xmax"])) + 1000), 
+     ylim = c(mean(c(bb["ymin"], bb["ymax"])) - 1000, 
+              mean(c(bb["ymin"], bb["ymax"])) + 1000))
+
+plot(ticino_int_circles[, "NAME_3"], 
+     xlim = c(mean(c(bb["xmin"], bb["xmax"])) - 1000, 
+              mean(c(bb["xmin"], bb["xmax"])) + 1000), 
+     ylim = c(mean(c(bb["ymin"], bb["ymax"])) - 1000, 
+              mean(c(bb["ymin"], bb["ymax"])) + 1000))
+
+
+#plot(ticino_int_circles[, "NAME_3"], add = TRUE)
+
+
+# Summarize by NAME_3
+# which aggregates all of the circles by NAME_3, 
+# then calculate the area
+ticino_int_circles_summary <- group_by(ticino_int_circles, NAME_3) %>% 
+  summarise() %>% 
+  mutate(area = st_area(.))
+
+
+```
+That appears to be doing most of what it should, but the plot(, add=TRUE) part does not seem to work for some reason. Reagrdless, this may be what can be adjusted for the GTFS situation for this analysis.  The absmapsdata package loads the data as a sf^[Simple feature, see https://cran.r-project.org/web/packages/sf/vignettes/sf1.html] object.  
+
+
+<!---
+The following code shows the SA1 areas within 20km of each stop in the first GTFS file (the regional trains). 
+
+
+
+```{r buffers_gtfs, echo=FALSE, fig.margin=TRUE, fig.cap="buffers example that didn't plot", cache=TRUE}
+library(raster)
+library(tidyverse)
+library(sf)
+
+buffer_distance <- 20000
+gtfs <- mel1
+
+# convert to sf format
+dat_abs_sf <- sa1_map_data %>%
+  # convert to simple features
+  sf::st_as_sf() %>%
+    st_transform(28355) # Reproject to EPSG:28355 as mentioned above
+
+
+
+dat_sim <- data.frame(lat = gtfs$stops$stop_lat,
+                      long = gtfs$stops$stop_lon)
+
+# Convert to sf, set the crs to EPSG:4326 (lat/long), 
+# and transform to EPSG:28355 - as per https://epsg.io/28355
+dat_sf <- st_as_sf(dat_sim, coords = c("long", "lat"), crs = 4326) %>% 
+  st_transform(28355)
+
+
+
+# Buffer circles by the buffer distance
+dat_circles <- st_buffer(dat_sf, dist = buffer_distance)
+
+
+plot(dat_circles)
+
+
+# Intersect the circles with the polygons
+melb_int_circles <- st_intersection(dat_abs_sf, dat_circles)
+#> Warning: attribute variables are assumed to be spatially constant
+#> throughout all geometries
+
+## Plot a zoomed in map of polygons and overlay intersected circles to double check:
+
+bb <- st_bbox(melb_int_circles)
+plot(dat_abs_sf[, "sa1_code_2021"])
+
+plot(melb_int_circles[, "sa1_code_2021"])
+
+
+#plot(ticino_int_circles[, "NAME_3"], add = TRUE)
+
+
+# Summarize by SA1_code_2021
+# which aggregates all of the circles by SA1 code, 
+# then calculate the area
+melb_int_circles_summary <- group_by(melb_int_circles, sa1_code_2021) %>% 
+  summarise() %>% 
+  mutate(area = st_area(.))
+
+
+```
+So, that works as expected. 
+--->
+
+
+
+## 4.4 Putting the SI~CCD~ together
+Next the areas (Area~Bn~ and Area~CCD~) and the Service Level Measure (SL~Bn~) are calculated for all of the SA1 areas at a single stop, added to a cumulative total field for each SA1 area, then repeated for all the stops. 
+
+<!----
+
+```{r stop_buffer_calc, echo=FALSE, fig.margin=TRUE, fig.cap="Melbourne City, SI for week starting 27/04/23 for regional trains only", cache=TRUE}
+library(raster)
+library(tidyverse)
+library(sf)
+
+buffer_distance <- 800
+gtfs <- mel1
+start_date <- "2023-04-27"
+
+
+# convert to sf format
+dat_abs_sf <- sa1_map_data %>%
+  # convert to simple features
+  sf::st_as_sf() %>%
+    st_transform(28355) # Reproject to EPSG:28355 as mentioned above
+
+# Create SICCD variable for the running total.  Set units to square km for ease of calculation
+dat_abs_sf$SI_CCD <- set_units(0, "km^2")
+
+
+for (i in seq(1,nrow(gtfs$stops),1)) {
+  #SI_CCD variable back to units of km^2
+  dat_abs_sf$SI_CCD <- set_units(dat_abs_sf$SI_CCD, "km^2")
+  
+  dat_sim <- data.frame(lat = gtfs$stops$stop_lat[i],
+                      long = gtfs$stops$stop_lon[i])
+
+  # Convert to sf, set the crs to EPSG:4326 (lat/long), 
+  # and transform to EPSG:28355 - as per https://epsg.io/28355
+  dat_sf <- st_as_sf(dat_sim, coords = c("long", "lat"), crs = 4326) %>% 
+  st_transform(28355)
+
+  # Buffer circles by the buffer distance
+  dat_circles <- st_buffer(dat_sf, dist = buffer_distance)
+
+  
+  # Intersect the circles with the polygons
+  int_circles <- st_intersection(dat_abs_sf, dat_circles)
+
+  # calculate Area Bn 
+  int_circles$area_bn <- set_units(st_area(int_circles), "km^2") #Take care of units
+  
+  #Retrieve number of arrivals for day1-7
+  SL_Bn <- arrival_seven_day_function(gtfs = gtfs, stop_to_show = gtfs$stops$stop_name[i], first_date = start_date)
+  int_circles$SL_Bn <- nrow(SL_Bn[[1]]) + nrow(SL_Bn[[2]]) + nrow(SL_Bn[[3]]) + nrow(SL_Bn[[4]]) + nrow(SL_Bn[[5]]) + nrow(SL_Bn[[6]]) + nrow(SL_Bn[[7]])
+  
+  #Calculate SI_CCD for stop i
+  int_circles$SI_CCD <- int_circles$area_bn / int_circles$areasqkm_2021 * int_circles$SL_Bn
+  
+  #Create ordinary tibble with SA1 code and SI_CCDs from stop i to add to the running totals
+  export_to_ccds <- tibble(sa1_code_2021 = int_circles$sa1_code_2021, add_to_SI_CCD = int_circles$SI_CCD)
+
+  #drop add_SI_CCD column from 
+  dat_abs_sf <- dat_abs_sf[, !(colnames(dat_abs_sf) %in% "add_to_SI_CCD")]
+  
+  
+  #merge based on sa1_code_2021
+  dat_abs_sf <- left_join(dat_abs_sf, export_to_ccds)
+  
+  #SI_CCD and add_to_SI_CCD to non-unit numbers
+  dat_abs_sf$SI_CCD <- as.vector(dat_abs_sf$SI_CCD)
+  dat_abs_sf$add_to_SI_CCD <- as.vector(dat_abs_sf$add_to_SI_CCD)
+  
+  #replace NA with 0 
+  dat_abs_sf[is.na(dat_abs_sf)] = 0
+  
+  #add the SI_CCDs for stop i to the running total of SI_CCD
+  dat_abs_sf$SI_CCD <- dat_abs_sf$SI_CCD + dat_abs_sf$add_to_SI_CCD
+ 
+}
+  
+
+
+map <- dat_abs_sf %>%
+  filter(sa3_name_2021 == "Melbourne City") %>%   # let's just look Melbourne
+  ggplot() +
+  geom_sf(aes(geometry = geometry,  # use the geometry variable
+              fill = SI_CCD),     # fill by area size
+          lwd = 0,                  # remove borders
+          show.legend = TRUE) +    # keep legend
+ # geom_point(aes(cent_long,
+  #               cent_lat),        # use the centroid long (x) and lats (y)
+   #          colour = "white") +    # make the points white
+  theme_void() +                    # clears other plot elements
+  coord_sf()
+
+map
+
+
+
+```
+
+
+The SI~CCD~ for regional train services only within Melbourne City is as might be expected; the value is highest for the SA1 census districts closest to Southern Cross and Flinders Street station.  
+
+--->
+
+
+The next step generalises the code into a function that will calculate the SI~CCD~ for all SA1 districts, for any starting date, and using all of the relevant GTFS files for Victoria^[Not just the regional trains.].
+
+```{r SICCD_calc_as_functions, echo=FALSE, fig.margin=TRUE, fig.cap="SI for week starting 27/04/23 for Melbourne Metro trains, Melbourne City area", cache=TRUE}
+
+##comment out to save memory
+#buffer_distance <- 800
+#gtfs <- mel1
+#start_date <- "2023-04-27"
+#EPSG_for_transform <- 28355
+
+#sa1_map_data_vic <- sa1_map_data %>%
+ # filter(state_name_2021 == "Victoria") # let's just look at Victoria
+
+
+
+
+SICCD_calc_function <- function(sa1_map_data = sa1_map_data, gtfs = gtfs, start_date = start_date, EPSG_for_transform = EPSG_for_transform, buffer_distance = buffer_distance){
+
+  # convert to sf format
+  dat_abs_sf <- sa1_map_data %>%
+    # convert to simple features
+    sf::st_as_sf() %>%
+      st_transform(EPSG_for_transform) # Reproject to EPSG:28355 as mentioned above
+
+  # Create SICCD variable for the running total.  Set units to square km for ease of calculation
+  dat_abs_sf$SI_CCD <- set_units(0, "km^2")
+
+  for (i in seq(1,nrow(gtfs$stops),1)) {
+    #SI_CCD variable back to units of km^2
+    dat_abs_sf$SI_CCD <- set_units(dat_abs_sf$SI_CCD, "km^2")
+  
+    dat_sim <- data.frame(lat = gtfs$stops$stop_lat[i],
+                        long = gtfs$stops$stop_lon[i])
+
+    # Convert to sf, set the crs to EPSG:4326 (lat/long), 
+    # and transform to EPSG:28355 - as per https://epsg.io/28355
+    dat_sf <- st_as_sf(dat_sim, coords = c("long", "lat"), crs = 4326) %>% 
+    st_transform(EPSG_for_transform)
+
+   # Buffer circles by the buffer distance
+    dat_circles <- st_buffer(dat_sf, dist = buffer_distance)
+
+    # Intersect the circles with the polygons
+    int_circles <- st_intersection(dat_abs_sf, dat_circles)
+
+    # calculate Area Bn 
+    int_circles$area_bn <- set_units(st_area(int_circles), "km^2") #Take care of units
+  
+    #Retrieve number of arrivals for day1-7
+    SL_Bn <- arrival_seven_day_function(gtfs = gtfs, stop_to_show = gtfs$stops$stop_name[i], first_date = start_date)
+    int_circles$SL_Bn <- nrow(SL_Bn[[1]]) + nrow(SL_Bn[[2]]) + nrow(SL_Bn[[3]]) + nrow(SL_Bn[[4]]) + nrow(SL_Bn[[5]]) + 
+      nrow(SL_Bn[[6]]) + nrow(SL_Bn[[7]]) 
+    #Calculate SI_CCD for stop i
+    int_circles$SI_CCD <- int_circles$area_bn / int_circles$areasqkm_2021 * int_circles$SL_Bn
+  
+    #Create ordinary tibble with SA1 code and SI_CCDs from stop i to add to the running totals
+    export_to_ccds <- tibble(sa1_code_2021 = int_circles$sa1_code_2021, add_to_SI_CCD = int_circles$SI_CCD)
+
+   #drop add_SI_CCD column from SA1 map
+    dat_abs_sf <- dat_abs_sf[, !(colnames(dat_abs_sf) %in% "add_to_SI_CCD")]
+  
+  
+    #merge based on sa1_code_2021
+    dat_abs_sf <- left_join(dat_abs_sf, export_to_ccds)
+  
+    #SI_CCD and add_to_SI_CCD to non-unit numbers
+    dat_abs_sf$SI_CCD <- as.vector(dat_abs_sf$SI_CCD)
+    dat_abs_sf$add_to_SI_CCD <- as.vector(dat_abs_sf$add_to_SI_CCD)
+  
+    #replace NA with 0 
+    dat_abs_sf[is.na(dat_abs_sf)] = 0
+  
+    #add the SI_CCDs for stop i to the running total of SI_CCD
+    dat_abs_sf$SI_CCD <- dat_abs_sf$SI_CCD + dat_abs_sf$add_to_SI_CCD
+ 
+  }
+  return(dat_abs_sf)
+}
+##Do calculation
+#mel1_SICCD <- SICCD_calc_function(sa1_map_data = sa1_map_data, gtfs = mel1, start_date = start_date, #EPSG_for_transform = EPSG_for_transform, buffer_distance = 800)
+##save calculation to file
+#write_csv(mel1_SICCD, "mel1_SICCD.csv")
+##read the saved calculation back from file
+#mel1_SICCD <- read_csv("mel1_SICCD.csv")
+#map <- mel1_SICCD %>%
+#  filter(sa3_name_2021 == "Melbourne City") %>%   # let's just look Melbourne
+#  ggplot() +
+#  geom_sf(aes(geometry = geometry,  # use the geometry variable
+ #             fill = SI_CCD),     # fill by area size
+#          lwd = 0,                  # remove borders
+ #         show.legend = TRUE) +    # keep legend
+# geom_point(aes(cent_long,
+#               cent_lat),        # use the centroid long (x) and lats (y)
+   #          colour = "white") +    # make the points white
+#  theme_void() +                    # clears other plot elements
+#  coord_sf()
+
+#map
+
+
+
+```
+
+Next, plot the Melbourne Metro Trains SIs for Melbourne City, based on the 2google_transit.zip GTFS file. 
+
+```{r SICCD_calc_mel2, echo=FALSE, fig.margin=TRUE, fig.cap="SI for week starting 27/04/23 for Melbourne Metro trains, Melbourne City area", cache=TRUE}
+
+
+#mel2_SICCD <- SICCD_calc_function(sa1_map_data = sa1_map_data, gtfs = mel2, start_date = start_date, EPSG_for_transform = EPSG_for_transform, buffer_distance = 800)
+
+##save calculation to file
+#write_csv(mel2_SICCD, "mel2_SICCD.csv")
+##read the saved calculation back from file
+#mel2_SICCD <- read_csv("mel2_SICCD.csv")
+
+
+#map <- mel2_SICCD %>%
+#  filter(sa3_name_2021 == "Melbourne City") %>%   # let's just look Melbourne
+#  ggplot() +
+#  geom_sf(aes(geometry = geometry,  # use the geometry variable
+#              fill = SI_CCD),     # fill by area size
+#          lwd = 0,                  # remove borders
+#          show.legend = TRUE) +    # keep legend
+# geom_point(aes(cent_long,
+#               cent_lat),        # use the centroid long (x) and lats (y)
+   #          colour = "white") +    # make the points white
+  theme_void() +                    # clears other plot elements
+  coord_sf()
+
+map
+
+
+```
+
+
+Next, plot the Yarra Trams SIs for Melbourne City, based on the 3google_transit.zip GTFS file. 
+
+```{r SICCD_calc_mel3, echo=FALSE, fig.margin=TRUE, fig.cap="SI for week starting 27/04/23 for Melbourne Yarra Trams, Melbourne City area", cache=TRUE}
+
+##Do calculation
+mel3_SICCD <- SICCD_calc_function(sa1_map_data = sa1_map_data, gtfs = mel3, start_date = start_date, EPSG_for_transform = EPSG_for_transform, buffer_distance = 400)
+##save calculation to file
+#write_csv(mel3_SICCD, "mel3_SICCD.csv")
+##read the saved calculation back from file
+#mel3_SICCD <- read_csv("mel3_SICCD.csv")
+
+
+map <- mel3_SICCD %>%
+  filter(sa3_name_2021 == "Melbourne City") %>%   # let's just look Melbourne
+  ggplot() +
+  geom_sf(aes(geometry = geometry,  # use the geometry variable
+              fill = SI_CCD),     # fill by area size
+          lwd = 0,                  # remove borders
+          show.legend = TRUE) +    # keep legend
+# geom_point(aes(cent_long,
+#               cent_lat),        # use the centroid long (x) and lats (y)
+   #          colour = "white") +    # make the points white
+  theme_void() +                    # clears other plot elements
+  coord_sf()
+
+map
+
+```
+
+
+Next, plot the bus SIs for Melbourne City, based on the 4google_transit.zip GTFS file. 
+
+```{r SICCD_calc_mel4, echo=FALSE, fig.margin=TRUE, fig.cap="SI for week starting 27/04/23 for Melbourne Yarra Trams, Melbourne City area", cache=TRUE}
+
+
+mel4_SICCD <- SICCD_calc_function(sa1_map_data = sa1_map_data, gtfs = mel4, start_date = start_date, EPSG_for_transform = EPSG_for_transform, buffer_distance = 400)
+
+
+map <- mel4_SICCD %>%
+  filter(sa3_name_2021 == "Melbourne City") %>%   # let's just look Melbourne
+  ggplot() +
+  geom_sf(aes(geometry = geometry,  # use the geometry variable
+              fill = SI_CCD),     # fill by area size
+          lwd = 0,                  # remove borders
+          show.legend = TRUE) +    # keep legend
+# geom_point(aes(cent_long,
+#               cent_lat),        # use the centroid long (x) and lats (y)
+   #          colour = "white") +    # make the points white
+  theme_void() +                    # clears other plot elements
+  coord_sf()
+
+map
+
+```
+
+
+
+Next, plot the bus SIs for what appears to be regional bus services for Melbourne City, based on the 5google_transit.zip GTFS file. 
+
+```{r SICCD_calc_mel5, echo=FALSE, fig.margin=TRUE, fig.cap="SI for week starting 27/04/23 for regional buses, Melbourne City area", cache=TRUE}
+
+
+mel5_SICCD <- SICCD_calc_function(sa1_map_data = sa1_map_data, gtfs = mel5, start_date = start_date, EPSG_for_transform = EPSG_for_transform, buffer_distance = 400)
+
+
+map <- mel5_SICCD %>%
+  filter(sa3_name_2021 == "Melbourne City") %>%   # let's just look Melbourne
+  ggplot() +
+  geom_sf(aes(geometry = geometry,  # use the geometry variable
+              fill = SI_CCD),     # fill by area size
+          lwd = 0,                  # remove borders
+          show.legend = TRUE) +    # keep legend
+# geom_point(aes(cent_long,
+#               cent_lat),        # use the centroid long (x) and lats (y)
+   #          colour = "white") +    # make the points white
+  theme_void() +                    # clears other plot elements
+  coord_sf()
+
+map
+
+```
+
+Next, plot the bus SIs for what appears to be regional bus services in Gippsland for Melbourne City, based on the 6google_transit.zip GTFS file. 
+
+```{r SICCD_calc_mel6, echo=FALSE, fig.margin=TRUE, fig.cap="SI for week starting 27/04/23 for regional buses in the Gippsland area, Melbourne City area", cache=TRUE}
+
+
+mel6_SICCD <- SICCD_calc_function(sa1_map_data = sa1_map_data, gtfs = mel6, start_date = start_date, EPSG_for_transform = EPSG_for_transform, buffer_distance = 400)
+
+
+map <- mel6_SICCD %>%
+  filter(sa3_name_2021 == "Melbourne City") %>%   # let's just look Melbourne
+  ggplot() +
+  geom_sf(aes(geometry = geometry,  # use the geometry variable
+              fill = SI_CCD),     # fill by area size
+          lwd = 0,                  # remove borders
+          show.legend = TRUE) +    # keep legend
+# geom_point(aes(cent_long,
+#               cent_lat),        # use the centroid long (x) and lats (y)
+   #          colour = "white") +    # make the points white
+  theme_void() +                    # clears other plot elements
+  coord_sf()
+
+map
+
+```
+
+
+The 7google_transit.zip and 8google_transit.zip GTFS files are empty of data. Therefore plot SIs for what appears to be the Overaland services, for the Melbourne City
+
+```{r SICCD_calc_mel10, echo=FALSE, fig.margin=TRUE, fig.cap="SI for week starting 27/04/23 for Overland services, Melbourne City area", cache=TRUE}
+
+
+mel10_SICCD <- SICCD_calc_function(sa1_map_data = sa1_map_data, gtfs = mel10, start_date = start_date, EPSG_for_transform = EPSG_for_transform, buffer_distance = 800)
+
+
+map <- mel10_SICCD %>%
+  filter(sa3_name_2021 == "Melbourne City") %>%   # let's just look Melbourne
+  ggplot() +
+  geom_sf(aes(geometry = geometry,  # use the geometry variable
+              fill = SI_CCD),     # fill by area size
+          lwd = 0,                  # remove borders
+          show.legend = TRUE) +    # keep legend
+# geom_point(aes(cent_long,
+#               cent_lat),        # use the centroid long (x) and lats (y)
+   #          colour = "white") +    # make the points white
+  theme_void() +                    # clears other plot elements
+  coord_sf()
+
+map
+
+```
+
+Next plot SIs for the Skybus services, for Melbourne City. 
+
+
+```{r SICCD_calc_mel11, echo=FALSE, fig.margin=TRUE, fig.cap="SI for week starting 27/04/23 for Skybus services, Melbourne City area", cache=TRUE}
+
+
+mel11_SICCD <- SICCD_calc_function(sa1_map_data = sa1_map_data, gtfs = mel11, start_date = start_date, EPSG_for_transform = EPSG_for_transform, buffer_distance = 800)
+
+
+map <- mel11_SICCD %>%
+  filter(sa3_name_2021 == "Melbourne City") %>%   # let's just look Melbourne
+  ggplot() +
+  geom_sf(aes(geometry = geometry,  # use the geometry variable
+              fill = SI_CCD),     # fill by area size
+          lwd = 0,                  # remove borders
+          show.legend = TRUE) +    # keep legend
+# geom_point(aes(cent_long,
+#               cent_lat),        # use the centroid long (x) and lats (y)
+   #          colour = "white") +    # make the points white
+  theme_void() +                    # clears other plot elements
+  coord_sf()
+
+map
+
+```
+
+Finally, the SICCD for each mode can be combined into a single dataframe, so that they can be added together. 
+
+
+```{r SICCD_calc_mel_total <- <- <- <- <- <- <- <- <- <- <- <- <- <- <- <- , echo=FALSE, fig.margin=TRUE, fig.cap="SI for week starting 27/04/23 for Skybus services, Melbourne City area", cache=TRUE}
+
+mel_total_SICCD <- mel1_SICCD
+colnames(mel_total_SICCD)[which(names(mel_total_SICCD) == "SI_CCD")]<-  "SI_CCD_regional_train"
+mel_total_SICCD$SI_CCD_metro_train <- mel2_SICCD$SI_CCD
+mel_total_SICCD$SI_CCD_tram <- mel3_SICCD$SI_CCD
+mel_total_SICCD$SI_CCD_bus <- mel4_SICCD$SI_CCD
+mel_total_SICCD$SI_CCD_regional_bus <- mel5_SICCD$SI_CCD
+mel_total_SICCD$SI_CCD_regional_bus_gippsland <- mel6_SICCD$SI_CCD
+mel_total_SICCD$SI_CCD_overland <- mel10_SICCD$SI_CCD
+mel_total_SICCD$SI_CCD_skybus <- mel11_SICCD$SI_CCD
+
+mel_total_SICCD$SI_CCD_total <- mel_total_SICCD$SI_CCD_regional_train + 
+  mel_total_SICCD$SI_CCD_metro_train +
+  mel_total_SICCD$SI_CCD_tram + 
+  mel_total_SICCD$SI_CCD_bus +
+  mel_total_SICCD$SI_CCD_regional_bus +
+  mel_total_SICCD$SI_CCD_regional_bus_gippsland + 
+  mel_total_SICCD$SI_CCD_overland + 
+  mel_total_SICCD$SI_CCD_skybus
+
+
+```
+
+
+
+# 5.0 Results
+
+
+
+
+
+# 6.0 Discussion and conclusion
+
+
+# Other
+
+
+Along the way, I found the ggmap package^[See https://journal.r-project.org/archive/2013-1/kahle-wickham.pdf][@ggmap]. 
+
+
+
+```{r ggmap, echo=FALSE, fig.margin=TRUE, fig.cap="maps generated from ggmap funciton", cache=TRUE}
+
+baylor <- "baylor university"
+qmap(baylor, zoom = 14)
+
+paris <- get_map(location = "paris")
+
+ggmap(paris, extent = "normal")
+
+melbourne <- get_map(location = "melbourne")
+ggmap(melbourne, extent = "normal")
+
+theme_set(theme_bw(16))
+melbourne_map <- qmap("melbourne", zoom = 14, color = "bw", legend = "topleft")
+melbourne_map
+```
+
+
+
+
+# References
