@@ -18,7 +18,7 @@ header-includes:
 
 ---
 
-```{r setup, include=FALSE}
+```{r setup, include=FALSE, warning=FALSE}
 library(tufte)
 library(tidyverse)
 library(tidytransit)
@@ -47,6 +47,7 @@ library(dplyr)
 library(devtools)
 library(gtfssupplyindex)
 
+knitr::opts_chunk$set(echo=FALSE, warning = FALSE, message = FALSE, comment=FALSE)
 # invalidate cache when the tufte version changes
 #knitr::opts_chunk$set(cache.extra = packageVersion('tufte'))
 ```
@@ -173,6 +174,12 @@ The stops_in_or_near_areas table is key to calculating coverage, as this table d
 
 ## Frequency calculation
 
+There is helper function in the gtfssupplyindex packages, "arrivals", which is called by the si_calc function^[The "arrivals" function is not shown in the diagram in Figure 1 as it is a relatively minor function that only performs a small part of the SI calculation.].  This function takes a gtfs file, a list of stop_ids, a date and (optionally) a start and end time and returns a dataframe listing the number of arrivals for each stop_id in the specified time frame^[arrivals <- function(gtfs = gtfs, stop_ids = stop_ids, date_ymd = date_ymd, start_hms = lubridate::hms("-1:0:0"), end_hms = lubridate::hms("48:00:00")){...}]. 
+
+In combination with the stops_in_walk_dist function, this "arrivals" function can be used to calculate the number of transit arrivals at stops that are within or otherwise 'in walking distance' of each area of interest.  
+
+
+
 ## Mornington Penninsula test data
 The gtfssupplyindex package includes a set of test data, sourced from the ABS SA1 (2021) boundaries and the Mornington Penninsula Tourist Railway GTFS feed. This GTFS feed includes only three stations and a small number of trips, and so is useful for testing that code runs as expected, and to hand-verify calculation results.  
 
@@ -188,7 +195,7 @@ The gtfssupplyindex package includes a set of test data, sourced from the ABS SA
 The calculated coverages are shown in Table 1, while Figure 2 shows a plot of the parts of the SA1s that are within the buffer areas around each of the stations. 
 
 
-```{r echo=FALSE, out.width='100%', fig.cap = "Mornington Penninsula SA1 coverage plot", fig.fullwidth = FALSE, fig.keep = "first", echo=FALSE, message=FALSE, warning=FALSE}
+```{r  out.width='100%', fig.cap = "Mornington Penninsula SA1 coverage plot", fig.fullwidth = FALSE, fig.keep = "first"}
 #load the revised mornington GTFS data
 list_gtfs = gtfssupplyindex:::gtfs_by_route_type(system.file(
 "extdata/mornington180109",
@@ -200,7 +207,8 @@ areas_of_interest <- load_areas_of_interest(areas_of_interest = sf::st_read(syst
 "extdata",
 "mornington_sa12021.geojson", 
 package = "gtfssupplyindex", 
-mustWork = TRUE)), 
+mustWork = TRUE), 
+quiet = TRUE), 
 area_id_field = "sa1_code_2021")
  
 buffer_distance <- gtfssupplyindex:::load_buffer_zones()
@@ -224,6 +232,190 @@ kable(mornington_coverage, caption = "Mornington Penninsula Tourist Railway cove
 ```
 
 Results appear consistent with expectations, with most SA1s having only partial coverage.  Three SA1s, however, have 100\% coverage^[21402159134, 21402159131 and 21402159136], matching the three small SA1s^[Dark blue, light blue and purple] within the walking catchment of the south-western-most station. The result for area_id 21402159111 also meets expectations, being the SA1 that is almost, but not quite, completely covered by parts of the south-western and centre-most station buffer areas^[Being 98\% covered, in light green].  
+
+`r newthought("Frequency")` results for the Mornington Peninsula are shown in Table 2.  These also appear to be consistent with expectations, with the areas of interest tending to mostly have 4 or 8 services. This matches with the service pattern for the Mornington Peninsula, which has four trips in each direction on each day that services are run, meaning that the 'middle' station has 8 arrivals while the two terminal stations have 4. 
+
+There are, however, some areas of interest that have frequencies of 12. In each case this is because these areas of interest are overlapped by the buffer areas of two of the stations^[21402138128 is in orange in the map above, and covers most of the area of the north-east station, but also a very small sliver of its area within the middle station's buffer area; 21402159111 in green is covered by the south-western and middle stations buffer areas; likewise 21402159113, 21402159115, 21402159121 and 2140259135 in various shades of green, blue and purple.]  
+
+```{r out.width='100%', fig.cap = "Mornington Penninsula SA1 coverage plot", fig.fullwidth = FALSE, fig.keep = "first"}
+#load the revised mornington GTFS data
+list_gtfs = gtfssupplyindex:::gtfs_by_route_type(system.file(
+"extdata/mornington180109",
+"gtfs.zip", 
+package = "gtfssupplyindex", 
+mustWork = TRUE))
+
+areas_of_interest <- load_areas_of_interest(areas_of_interest = sf::st_read(system.file(
+"extdata",
+"mornington_sa12021.geojson", 
+package = "gtfssupplyindex", 
+mustWork = TRUE), 
+quiet = TRUE), 
+area_id_field = "sa1_code_2021")
+ 
+buffer_distance <- gtfssupplyindex:::load_buffer_zones()
+
+mornington_stops_in_or_near_areas <- gtfssupplyindex:::stops_in_walk_dist(
+list_gtfs = list_gtfs, 
+areas_of_interest = areas_of_interest,
+EPSG_for_transform = 28355, 
+verbose = FALSE)
+
+## aggregate modes
+mornington_frequency <- mornington_stops_in_or_near_areas %>% bind_rows(.id="mode")
+mornington_frequency$stop_id <- mornington_frequency$stop_id %>% as.character()
+
+
+mornington_arrivals <- arrivals(
+  gtfs = list_gtfs[[1]], 
+  stop_ids = mornington_frequency %>% select(stop_id) %>% unique(),
+  date_ymd = lubridate::ymd("2018-12-30"))
+
+mornington_frequency <- left_join(mornington_arrivals, mornington_frequency)
+
+## aggregate by area_id
+mornington_frequency <- as.data.frame(xtabs(arrivals ~ area_id, mornington_frequency))
+names(mornington_frequency) <- c("area_id", "frequency")  
+
+kable(mornington_frequency, caption = "Mornington Penninsula Tourist Railway frequency by SA1")
+
+
+
+```
+```{r out.width='100%', fig.cap = "Mornington Penninsula SA1 SI versus coverage", fig.margin = TRUE, fig.keep = "first"}
+list_gtfs = gtfssupplyindex:::gtfs_by_route_type(system.file(
+ "extdata/mornington180109",
+ "gtfs.zip", 
+ package = "gtfssupplyindex", 
+ mustWork = TRUE))
+
+areas_of_interest <- load_areas_of_interest(absmapsdata::sa12021 %>% 
+            dplyr::filter(sa3_name_2021 ==  "Mornington Peninsula") %>% 
+                                             dplyr::select(sa1_code_2021),  
+                                           area_id_field = "sa1_code_2021")
+
+buffer_distance <- gtfssupplyindex:::load_buffer_zones()
+
+stops_in_or_near_areas <- gtfssupplyindex:::stops_in_walk_dist(
+ list_gtfs = list_gtfs, 
+ areas_of_interest = areas_of_interest,
+ EPSG_for_transform = 28355,
+ verbose = FALSE
+)
+
+####----run SI.calc function to build si_by_mode_and_time list (by route_type) of tables
+
+si_by_route_type <- si_calc(
+ list_gtfs = list_gtfs,
+ stops_in_or_near_areas = stops_in_or_near_areas, 
+ date_ymd = lubridate::ymd("2018-12-30"), 
+ start_hms = lubridate::hms("10:30:00"),
+ end_hms = lubridate::hms("16:00:00"),
+ verbose = FALSE)
+
+mornington_all <- left_join(si_by_route_type$rail, mornington_coverage)
+mornington_all <- left_join(mornington_all, mornington_frequency)
+```
+
+`r newthought("Comparing the SI scores")` with the coverage and frequency scores gives the scatterplots and statistical results shown in Figures 3 and 4.  
+Both show a statistically significant relationship between SI and, respectively, coverage and frequency.  The correlation between the calculated values for SI and coverage appears to be better (`r prmisc::print_cortest(cor.test(mornington_all$SI, mornington_all$coverage))` than that between SI and frequency (`r prmisc::print_cortest(cor.test(mornington_all$SI, mornington_all$frequency))`). However, this appears to match expectations, given that the test data here (Mornington Penninsula Tourist Railway) has only 4 trips in each direction and the difference between a score of 4, 8  or 12 for frequency might be just a matter of luck as to whether a small piece of the SA1 is within the buffer areas of one or two stations.  It might be expected that with more stops and more services (i.e. in the all of Victoria data) that the values for the frequency metric might be more evenly spread.  
+
+```{r out.width='100%', fig.cap = "Mornington Penninsula SA1 SI versus coverage", fig.margin = TRUE, fig.keep = "first"}
+ggscatterstats(mornington_all, SI, coverage)
+
+
+```
+
+```{r out.width='100%', fig.cap = "Mornington Penninsula SA1 SI versus frequency", fig.margin = TRUE, fig.keep = "first"}
+ggscatterstats(mornington_all, SI, frequency)
+
+
+```
+
+## All of Victoria, 
+SI values provided previously were for all of Victoria and for the seven days starting Thursday April 27, 2023. A first step is to replicate these values using the gtfssupplyindex package functions. Back in 2023 the Victorian GTFS feed that was downloadable from the data.vic website actually consisted of 10 separated zip files, with one covering each mode and provided^[e.g. separate feeds for Metro Trains and for Vline]. The first step therefore is to merge these into a single feed^[Note: a single file version of the Victorian GTFS for that time period is also available from the transitfeeds.org repository. For the moment we'll stick with using the same feeds used in the previous analysis]
+
+
+
+
+
+```{r echo=TRUE, eval=FALSE}
+
+victoria_gtfs_1 <- read_gtfs("data/1google_transit.zip")
+victoria_gtfs_2 <- read_gtfs("data/2google_transit.zip")
+victoria_gtfs_3 <- read_gtfs("data/3google_transit.zip")
+victoria_gtfs_4 <- read_gtfs("data/4google_transit.zip")
+victoria_gtfs_5 <- read_gtfs("data/5google_transit.zip")
+victoria_gtfs_6 <- read_gtfs("data/6google_transit.zip")
+victoria_gtfs_7 <- read_gtfs("data/7google_transit.zip")
+victoria_gtfs_8 <- read_gtfs("data/8google_transit.zip")
+
+victoria_gtfs_10 <- read_gtfs("data/10google_transit.zip")
+victoria_gtfs_11 <- read_gtfs("data/11google_transit.zip")
+
+victoria_gtfs <- merge_gtfs(
+  victoria_gtfs_1,
+  victoria_gtfs_2,
+  victoria_gtfs_3,
+  victoria_gtfs_4,
+  victoria_gtfs_5,
+  victoria_gtfs_6,
+  victoria_gtfs_7,
+  victoria_gtfs_8,
+  
+  victoria_gtfs_10,
+  victoria_gtfs_11)
+
+write_gtfs(victoria_gtfs, "data/victoria_gtfs.zip")
+
+```
+
+From there it is a matter of running the SI calculations in the usual way. 
+
+```{r echo=TRUE, eval=FALSE}
+
+list_gtfs = gtfssupplyindex:::gtfs_by_route_type("data/victoria_gtfs.zip")
+
+areas_of_interest <- load_areas_of_interest(absmapsdata::sa12021 %>% 
+            dplyr::filter(state_name_2021 ==  "Victoria") %>% 
+                                             dplyr::select(sa1_code_2021),  
+                                           area_id_field = "sa1_code_2021")
+
+buffer_distance <- gtfssupplyindex:::load_buffer_zones()
+
+stops_in_or_near_areas <- gtfssupplyindex:::stops_in_walk_dist(
+ list_gtfs = list_gtfs, 
+ areas_of_interest = areas_of_interest,
+ EPSG_for_transform = 28355,
+ verbose = FALSE
+)
+
+####----run SI.calc function to build si_by_mode_and_time list (by route_type) of tables
+
+si_by_route_type <- si_calc(
+ list_gtfs = list_gtfs,
+ stops_in_or_near_areas = stops_in_or_near_areas, 
+ date_ymd = lubridate::ymd("2023-04-27"), 
+ verbose = TRUE)
+
+Victoria_total_SI_SA1_230427_recreated_dataset <- si_total(si_by_route_type)
+
+
+```
+
+
+Loading and comparing the data sets gives: 
+
+```{r echo=TRUE}
+Victoria_total_SI_SA1_230427_original_dataset <- read_csv("Victoria_total_SI_SA1_230427.csv")
+
+#PICK UP FROM HERE
+
+```
+
+
+
+
 
 
 # Discussion and conclusions

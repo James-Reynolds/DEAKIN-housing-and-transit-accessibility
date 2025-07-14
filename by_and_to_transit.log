@@ -1,4 +1,4 @@
-This is XeTeX, Version 3.141592653-2.6-0.999996 (TeX Live 2024) (preloaded format=xelatex 2025.2.15)  10 JUL 2025 17:14
+This is XeTeX, Version 3.141592653-2.6-0.999996 (TeX Live 2024) (preloaded format=xelatex 2025.2.15)  14 JUL 2025 15:50
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -894,33 +894,20 @@ LaTeX Warning: Marginpar on page 1 moved.
 LaTeX Warning: Marginpar on page 1 moved.
 
 
-Overfull \hbox (3.60051pt too wide) detected at line 143
-[][][]\OML/cmm/m/it/8 SI[] \OT1/cmr/m/n/8 = [] []
- []
-
-
-LaTeX Warning: Marginpar on page 1 moved.
-
-
 LaTeX Warning: Marginpar on page 1 moved.
 
 [1
 
 ]
-Overfull \hbox (52.57562pt too wide) detected at line 184
-[][][]\OML/cmm/m/it/8 Frequency[] \OT1/cmr/m/n/8 = [] [][][] \OML/cmm/m/it/8 > 
-\OT1/cmr/m/n/8 0
- []
-
 File: ./SI_data_structure.png Graphic file (type bmp)
 <./SI_data_structure.png>
 
-Underfull \hbox (badness 10000) in paragraph at lines 200--201
+Underfull \hbox (badness 10000) in paragraph at lines 182--183
 
  []
 
 
-Package fontspec Warning: \addfontfeature(s) ignored on line 209; it cannot be
+Package fontspec Warning: \addfontfeature(s) ignored on line 191; it cannot be
 (fontspec)                used with a font that wasn't selected by a fontspec
 (fontspec)                command.
 (fontspec)                 
@@ -928,37 +915,29 @@ Package fontspec Warning: \addfontfeature(s) ignored on line 209; it cannot be
 (fontspec)                  The requested feature is "LetterSpace=10". 
 
 [2]
-Overfull \hbox (349.5pt too wide) in paragraph at lines 240--240
-[]\TU/lmtt/m/n/10 ##   `/Library/Frameworks/R.framework/Versions/4.4-arm64/Reso
-urces/library/gtfssupplyindex/extdata/mornington_sa12021.geojson'[] 
- []
+
+LaTeX Warning: Marginpar on page 3 moved.
 
 
-Overfull \hbox (102.75pt too wide) in paragraph at lines 240--240
-[]\TU/lmtt/m/n/10 ## Bounding box:  xmin: 144.6514 ymin: -38.49738 xmax: 145.26
-15 ymax: -38.16239[] 
- []
+LaTeX Warning: Marginpar on page 3 moved.
 
 
-Overfull \hbox (102.75pt too wide) in paragraph at lines 245--245
-[]\TU/lmtt/m/n/10 ## Warning: attribute variables are assumed to be spatially c
-onstant throughout[] 
- []
+LaTeX Warning: Marginpar on page 3 moved.
 
 File: ./mornington_areas.png Graphic file (type bmp)
 <./mornington_areas.png>
 
-Underfull \hbox (badness 10000) in paragraph at lines 248--249
+Underfull \hbox (badness 10000) in paragraph at lines 231--232
 
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 253--253
+Underfull \hbox (badness 10000) in paragraph at lines 236--236
 []\TU/lmr/m/n/10 Table 1: Mornington Penninsula Tourist Railway coverage by
  []
 
 
-Package fontspec Warning: \addfontfeature(s) ignored on line 294; it cannot be
+Package fontspec Warning: \addfontfeature(s) ignored on line 277; it cannot be
 (fontspec)                used with a font that wasn't selected by a fontspec
 (fontspec)                command.
 (fontspec)                 
@@ -978,25 +957,60 @@ LaTeX Warning: Marginpar on page 4 moved.
 
 LaTeX Warning: Marginpar on page 4 moved.
 
+
+Package fontspec Warning: \addfontfeature(s) ignored on line 305; it cannot be
+(fontspec)                used with a font that wasn't selected by a fontspec
+(fontspec)                command.
+(fontspec)                 
+(fontspec)                 The current font is "\TU/lmr/m/n/10 ".
+(fontspec)                  The requested feature is "LetterSpace=10". 
+
+[4]
+
+LaTeX Warning: Marginpar on page 5 moved.
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 308--308
+[]\TU/lmr/m/n/10 Table 2: Mornington Penninsula Tourist Railway frequency by
+ []
+
+
+Package fontspec Warning: \addfontfeature(s) ignored on line 349; it cannot be
+(fontspec)                used with a font that wasn't selected by a fontspec
+(fontspec)                command.
+(fontspec)                 
+(fontspec)                 The current font is "\TU/lmr/m/n/10 ".
+(fontspec)                  The requested feature is "LetterSpace=10". 
+
+[5]
+File: by_and_to_transit_files/figure-latex/unnamed-chunk-8-1.pdf Graphic file (
+type pdf)
+<use by_and_to_transit_files/figure-latex/unnamed-chunk-8-1.pdf>
+File: by_and_to_transit_files/figure-latex/unnamed-chunk-9-1.pdf Graphic file (
+type pdf)
+<use by_and_to_transit_files/figure-latex/unnamed-chunk-9-1.pdf>
+
+LaTeX Warning: Marginpar on page 6 moved.
+
 (./by_and_to_transit.bbl
 
-Package fontspec Warning: \addfontfeature(s) ignored on line 18; it cannot be
+Package fontspec Warning: \addfontfeature(s) ignored on line 32; it cannot be
 (fontspec)                used with a font that wasn't selected by a fontspec
 (fontspec)                command.
 (fontspec)                 
 (fontspec)                 The current font is "\TU/lmr/m/n/10 ".
 (fontspec)                  The requested feature is "LetterSpace=10". 
 
-[4])
+[6])
 
-Package fontspec Warning: \addfontfeature(s) ignored on line 312; it cannot be
+Package fontspec Warning: \addfontfeature(s) ignored on line 382; it cannot be
 (fontspec)                used with a font that wasn't selected by a fontspec
 (fontspec)                command.
 (fontspec)                 
 (fontspec)                 The current font is "\TU/lmr/m/n/10 ".
 (fontspec)                  The requested feature is "LetterSpace=10". 
 
-[5] (./by_and_to_transit.aux)
+[7] (./by_and_to_transit.aux)
  ***********
 LaTeX2e <2023-11-01> patch level 1
 L3 programming layer <2024-02-20>
@@ -1005,12 +1019,12 @@ Package rerunfilecheck Info: File `by_and_to_transit.out' has not changed.
 (rerunfilecheck)             Checksum: AF2606296DBE2C647DB5B1970CFC5D09;684.
  ) 
 Here is how much of TeX's memory you used:
- 18007 strings out of 474773
- 335383 string characters out of 5757724
- 1947839 words of memory out of 5000000
- 39780 multiletter control sequences out of 15000+600000
+ 18029 strings out of 474773
+ 336685 string characters out of 5757724
+ 1945839 words of memory out of 5000000
+ 39799 multiletter control sequences out of 15000+600000
  565315 words of font info for 80 fonts, out of 8000000 for 9000
  1348 hyphenation exceptions out of 8191
- 114i,11n,124p,380b,466s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 114i,11n,124p,380b,469s stack positions out of 10000i,1000n,20000p,200000b,200000s
 
-Output written on by_and_to_transit.pdf (5 pages).
+Output written on by_and_to_transit.pdf (7 pages).
