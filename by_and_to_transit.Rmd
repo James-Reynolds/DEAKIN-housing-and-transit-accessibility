@@ -368,6 +368,21 @@ victoria_gtfs <- merge_gtfs(
 
 write_gtfs(victoria_gtfs, "data/victoria_gtfs.zip")
 
+
+#fix duplicated ids in gtfs feed
+
+victoria_gtfs <- tidytransit::read_gtfs("data/victoria_gtfs.zip")
+
+victoria_gtfs_duplicated_stops <- tabyl(victoria_gtfs$stops$stop_id) %>% filter (n>1)
+names(victoria_gtfs_duplicated_stops) <- c("stop_id", "n", "percent")
+victoria_gtfs_duplicated_stops <- left_join(victoria_gtfs_duplicated_stops, victoria_gtfs$stops)
+
+## discard duplicates
+victoria_gtfs$stops <- victoria_gtfs$stops[!duplicated(victoria_gtfs$stops$stop_id),]
+
+## write gtfs back to file
+victoria_gtfs <- as_tidygtfs()
+
 ```
 
 From there it is a matter of running the SI calculations in the usual way. 
