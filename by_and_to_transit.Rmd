@@ -370,24 +370,37 @@ write_gtfs(victoria_gtfs, "data/victoria_gtfs.zip")
 
 
 #fix duplicated ids in gtfs feed
+victoria_gtfs <- gtfstools::read_gtfs("data/victoria_gtfs.zip")
+victoria_gtfs <- victoria_gtfs %>% gtfstools::remove_duplicates()
+#this dealt with the duplicated agency ids and duplicated calendar_dates entries, but does not the duplicates in stops or calendar 
 
-victoria_gtfs <- tidytransit::read_gtfs("data/victoria_gtfs.zip")
-
+# find duplicated stops
 victoria_gtfs_duplicated_stops <- tabyl(victoria_gtfs$stops$stop_id) %>% filter (n>1)
 names(victoria_gtfs_duplicated_stops) <- c("stop_id", "n", "percent")
 victoria_gtfs_duplicated_stops <- left_join(victoria_gtfs_duplicated_stops, victoria_gtfs$stops)
-
-## discard duplicates
+## discard duplicate stops
 victoria_gtfs$stops <- victoria_gtfs$stops[!duplicated(victoria_gtfs$stops$stop_id),]
 
-## write gtfs back to file
-victoria_gtfs <- as_tidygtfs()
+# find duplicated calenders
+victoria_gtfs_duplicated_service_ids <- tabyl(victoria_gtfs$calendar$service_id) %>% filter (n>1)
+names(victoria_gtfs_duplicated_service_ids) <- c("service_id", "n", "percent")
+victoria_gtfs_duplicated_service_ids <- left_join(victoria_gtfs_duplicated_service_ids, victoria_gtfs$calendar)
+## discard duplicate stops
+victoria_gtfs$calendar <- victoria_gtfs$calendar[!duplicated(victoria_gtfs$calendar$service_id),]
+
+victoria_gtfs <- victoria_gtfs %>% as_tidygtfs()
+#This now returns a tidytransit object. 
+write_gtfs(victoria_gtfs, "data/victoria_gtfs_duplicates_removed.zip")
+
+
 
 ```
 
 From there it is a matter of running the SI calculations in the usual way. 
 
 ```{r echo=TRUE, eval=FALSE}
+
+victoria_gtfs <- tidytransit::read_gtfs("data/victoria_gtfs_duplicates_removed.zip")
 
 list_gtfs = gtfssupplyindex:::gtfs_by_route_type("data/victoria_gtfs.zip")
 
