@@ -390,6 +390,7 @@ victoria_gtfs$calendar <- victoria_gtfs$calendar[!duplicated(victoria_gtfs$calen
 
 victoria_gtfs <- victoria_gtfs %>% as_tidygtfs()
 #This now returns a tidytransit object. 
+
 write_gtfs(victoria_gtfs, "data/victoria_gtfs_duplicates_removed.zip")
 
 
@@ -400,9 +401,8 @@ From there it is a matter of running the SI calculations in the usual way.
 
 ```{r echo=TRUE, eval=FALSE}
 
-victoria_gtfs <- tidytransit::read_gtfs("data/victoria_gtfs_duplicates_removed.zip")
 
-list_gtfs = gtfssupplyindex:::gtfs_by_route_type("data/victoria_gtfs.zip")
+list_gtfs = gtfssupplyindex:::gtfs_by_route_type("data/victoria_gtfs_duplicates_removed.zip")
 
 areas_of_interest <- load_areas_of_interest(absmapsdata::sa12021 %>% 
             dplyr::filter(state_name_2021 ==  "Victoria") %>% 
@@ -420,13 +420,23 @@ stops_in_or_near_areas <- gtfssupplyindex:::stops_in_walk_dist(
 
 ####----run SI.calc function to build si_by_mode_and_time list (by route_type) of tables
 
-si_by_route_type <- si_calc(
- list_gtfs = list_gtfs,
- stops_in_or_near_areas = stops_in_or_near_areas, 
- date_ymd = lubridate::ymd("2023-04-27"), 
- verbose = TRUE)
+victoria_total_SI_SA1_230427_by_day_hour_route_type <- SI_by_day_hour_and_route_type(
+     list_gtfs = list_gtfs, 
+stops_in_or_near_areas = stops_in_or_near_areas,
+ start_date_ymd = "2023-04-27", 
+ end_date_ymd = "2023-05-03",
+verbose = TRUE)
 
-Victoria_total_SI_SA1_230427_recreated_dataset <- si_total(si_by_route_type)
+
+
+write.csv(victoria_total_SI_SA1_230427_by_day_hour_route_type, "results/victoria_total_SI_SA1_230427_by_day_hour_route_type.csv")
+
+
+victoria_total_SI_SA1_230427_aggregated <- victoria_total_SI_SA1_230427_by_day_hour_route_type %>% 
+           group_by(area_id) %>%    
+           summarize(SI = sum(SI))
+
+write.csv(victoria_total_SI_SA1_230427_aggregated, "results/victoria_total_SI_SA1_230427_aggregated.csv")
 
 
 ```
@@ -436,6 +446,11 @@ Loading and comparing the data sets gives:
 
 ```{r echo=TRUE}
 Victoria_total_SI_SA1_230427_original_dataset <- read_csv("Victoria_total_SI_SA1_230427.csv")
+
+Victoria_total_SI_SA1_230427_recalculated_dataset <- read_csv("results/victoria_total_SI_SA1_230427_aggregated.csv")
+
+
+#Something weird going on here, as they don't match
 
 #PICK UP FROM HERE
 
