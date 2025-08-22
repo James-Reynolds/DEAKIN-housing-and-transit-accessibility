@@ -333,76 +333,65 @@ ggscatterstats(mornington_all, SI, frequency)
 ```
 
 ## All of Victoria, 
-SI values provided previously were for all of Victoria and for the seven days starting Thursday April 27, 2023. A first step is to replicate these values using the gtfssupplyindex package functions. Back in 2023 the Victorian GTFS feed that was downloadable from the data.vic website actually consisted of 10 separated zip files, with one covering each mode and provided^[e.g. separate feeds for Metro Trains and for Vline]. The first step therefore is to merge these into a single feed^[Note: a single file version of the Victorian GTFS for that time period is also available from the transitfeeds.org repository. For the moment we'll stick with using the same feeds used in the previous analysis]
 
-
-
-
-
-```{r echo=TRUE, eval=FALSE}
-
-victoria_gtfs_1 <- read_gtfs("data/1google_transit.zip")
-victoria_gtfs_2 <- read_gtfs("data/2google_transit.zip")
-victoria_gtfs_3 <- read_gtfs("data/3google_transit.zip")
-victoria_gtfs_4 <- read_gtfs("data/4google_transit.zip")
-victoria_gtfs_5 <- read_gtfs("data/5google_transit.zip")
-victoria_gtfs_6 <- read_gtfs("data/6google_transit.zip")
-victoria_gtfs_7 <- read_gtfs("data/7google_transit.zip")
-victoria_gtfs_8 <- read_gtfs("data/8google_transit.zip")
-
-victoria_gtfs_10 <- read_gtfs("data/10google_transit.zip")
-victoria_gtfs_11 <- read_gtfs("data/11google_transit.zip")
-
-victoria_gtfs <- merge_gtfs(
-  victoria_gtfs_1,
-  victoria_gtfs_2,
-  victoria_gtfs_3,
-  victoria_gtfs_4,
-  victoria_gtfs_5,
-  victoria_gtfs_6,
-  victoria_gtfs_7,
-  victoria_gtfs_8,
-  
-  victoria_gtfs_10,
-  victoria_gtfs_11)
-
-write_gtfs(victoria_gtfs, "data/victoria_gtfs.zip")
-
-
-#fix duplicated ids in gtfs feed
-victoria_gtfs <- gtfstools::read_gtfs("data/victoria_gtfs.zip")
-victoria_gtfs <- victoria_gtfs %>% gtfstools::remove_duplicates()
-#this dealt with the duplicated agency ids and duplicated calendar_dates entries, but does not the duplicates in stops or calendar 
-
-# find duplicated stops
-victoria_gtfs_duplicated_stops <- tabyl(victoria_gtfs$stops$stop_id) %>% filter (n>1)
-names(victoria_gtfs_duplicated_stops) <- c("stop_id", "n", "percent")
-victoria_gtfs_duplicated_stops <- left_join(victoria_gtfs_duplicated_stops, victoria_gtfs$stops)
-## discard duplicate stops
-victoria_gtfs$stops <- victoria_gtfs$stops[!duplicated(victoria_gtfs$stops$stop_id),]
-
-# find duplicated calenders
-victoria_gtfs_duplicated_service_ids <- tabyl(victoria_gtfs$calendar$service_id) %>% filter (n>1)
-names(victoria_gtfs_duplicated_service_ids) <- c("service_id", "n", "percent")
-victoria_gtfs_duplicated_service_ids <- left_join(victoria_gtfs_duplicated_service_ids, victoria_gtfs$calendar)
-## discard duplicate stops
-victoria_gtfs$calendar <- victoria_gtfs$calendar[!duplicated(victoria_gtfs$calendar$service_id),]
-
-victoria_gtfs <- victoria_gtfs %>% as_tidygtfs()
-#This now returns a tidytransit object. 
-
-write_gtfs(victoria_gtfs, "data/victoria_gtfs_duplicates_removed.zip")
-
+```{r echo=TRUE}
+Victoria_total_SI_SA1_230427_original_dataset <- read_csv("Victoria_total_SI_SA1_230427.csv")
 
 
 ```
 
-From there it is a matter of running the SI calculations in the usual way. 
+```{r load_melbourne_data, echo=FALSE, eval=FALSE}
+ 
+vic1 <- read_gtfs("data/1google_transit.zip")
+vic2 <- read_gtfs("data/2google_transit.zip")
+vic3 <- read_gtfs("data/3google_transit.zip")
+vic4 <- read_gtfs("data/4google_transit.zip")
+vic5 <- read_gtfs("data/5google_transit.zip")
+vic6 <- read_gtfs("data/6google_transit.zip")
+vic7 <- read_gtfs("data/7google_transit.zip")
+vic8 <- read_gtfs("data/8google_transit.zip")
+vic10 <- read_gtfs("data/10google_transit.zip")
+vic11 <- read_gtfs("data/11google_transit.zip")
 
-```{r echo=TRUE, eval=FALSE}
+```
 
 
-list_gtfs = gtfssupplyindex:::gtfs_by_route_type("data/victoria_gtfs_duplicates_removed.zip")
+
+```{r vic1, echo=TRUE, eval=FALSE}
+
+
+convert_ptv_to_tidy_gtfs <- function(gtfs_as_dt_gtfs = gtfs_as_dt_gtfs){ 
+  
+gtfs_as_dt_gtfs <- gtfs_as_dt_gtfs %>% gtfstools::remove_duplicates()
+#this dealt with the duplicated agency ids and duplicated calendar_dates entries, but does not the duplicates in stops or calendar 
+
+# find duplicated stops
+gtfs_as_dt_gtfs_duplicated_stops <- tabyl(gtfs_as_dt_gtfs$stops$stop_id) %>% filter (n>1)
+names(gtfs_as_dt_gtfs_duplicated_stops) <- c("stop_id", "n", "percent")
+gtfs_as_dt_gtfs_duplicated_stops <- left_join(gtfs_as_dt_gtfs_duplicated_stops, gtfs_as_dt_gtfs$stops)
+## discard duplicate stops
+gtfs_as_dt_gtfs$stops <- gtfs_as_dt_gtfs$stops[!duplicated(gtfs_as_dt_gtfs$stops$stop_id),]
+
+# find duplicated calenders
+gtfs_as_dt_gtfs_duplicated_service_ids <- tabyl(gtfs_as_dt_gtfs$calendar$service_id) %>% filter (n>1)
+names(gtfs_as_dt_gtfs_duplicated_service_ids) <- c("service_id", "n", "percent")
+gtfs_as_dt_gtfs_duplicated_service_ids <- left_join(gtfs_as_dt_gtfs_duplicated_service_ids, gtfs_as_dt_gtfs$calendar)
+## discard duplicate stops
+gtfs_as_dt_gtfs$calendar <- gtfs_as_dt_gtfs$calendar[!duplicated(gtfs_as_dt_gtfs$calendar$service_id),]
+
+gtfs_as_dt_gtfs <- gtfs_as_dt_gtfs %>% as_tidygtfs()
+#This now hopefully returns a tidytransit object. 
+
+return(gtfs_as_dt_gtfs)
+}
+
+
+
+vic1 <- convert_ptv_to_tidy_gtfs(vic1)
+tidytransit::write_gtfs(vic1, "data/vic1_as_tidy.zip")
+
+
+list_gtfs <- gtfs_by_route_type("data/vic1_as_tidy.zip")
 
 areas_of_interest <- load_areas_of_interest(absmapsdata::sa12021 %>% 
             dplyr::filter(state_name_2021 ==  "Victoria") %>% 
@@ -421,45 +410,431 @@ stops_in_or_near_areas <- gtfssupplyindex:::stops_in_walk_dist(
 ####----run SI.calc function to build si_by_mode_and_time list (by route_type) of tables
 
 victoria_total_SI_SA1_230427_by_day_hour_route_type <- SI_by_day_hour_and_route_type(
-     list_gtfs = list_gtfs, 
+     list_gtfs = list_gtfs,
 stops_in_or_near_areas = stops_in_or_near_areas,
- start_date_ymd = "2023-04-27", 
+ start_date_ymd = "2023-04-27",
  end_date_ymd = "2023-05-03",
 verbose = TRUE)
 
-
-
-write.csv(victoria_total_SI_SA1_230427_by_day_hour_route_type, "results/victoria_total_SI_SA1_230427_by_day_hour_route_type.csv")
+write.csv(victoria_total_SI_SA1_230427_by_day_hour_route_type, "results/victoria_total_SI_SA1_230427_by_day_hour_route_type_vic1.csv")
 
 
 victoria_total_SI_SA1_230427_aggregated <- victoria_total_SI_SA1_230427_by_day_hour_route_type %>% 
            group_by(area_id) %>%    
            summarize(SI = sum(SI))
 
-write.csv(victoria_total_SI_SA1_230427_aggregated, "results/victoria_total_SI_SA1_230427_aggregated.csv")
-
-
-```
-
-
-Loading and comparing the data sets gives: 
-
-```{r echo=TRUE}
-Victoria_total_SI_SA1_230427_original_dataset <- read_csv("Victoria_total_SI_SA1_230427.csv")
-
-Victoria_total_SI_SA1_230427_recalculated_dataset <- read_csv("results/victoria_total_SI_SA1_230427_aggregated.csv")
-
-
-#Something weird going on here, as they don't match
-
-#PICK UP FROM HERE
+write.csv(victoria_total_SI_SA1_230427_aggregated, "results/victoria_total_SI_SA1_230427_aggregated_vic1.csv")
 
 ```
 
+```{r vic2, echo=TRUE, eval=FALSE}
+
+
+vic2 <- convert_ptv_to_tidy_gtfs(vic2)
+tidytransit::write_gtfs(vic2, "data/vic2_as_tidy.zip")
+
+
+list_gtfs <- gtfs_by_route_type("data/vic2_as_tidy.zip")
+
+areas_of_interest <- load_areas_of_interest(absmapsdata::sa12021 %>% 
+            dplyr::filter(state_name_2021 ==  "Victoria") %>% 
+                                             dplyr::select(sa1_code_2021),  
+                                           area_id_field = "sa1_code_2021")
+
+buffer_distance <- gtfssupplyindex:::load_buffer_zones()
+
+stops_in_or_near_areas <- gtfssupplyindex:::stops_in_walk_dist(
+ list_gtfs = list_gtfs, 
+ areas_of_interest = areas_of_interest,
+ EPSG_for_transform = 28355,
+ verbose = FALSE
+)
+
+####----run SI.calc function to build si_by_mode_and_time list (by route_type) of tables
+
+victoria_total_SI_SA1_230427_by_day_hour_route_type <- SI_by_day_hour_and_route_type(
+     list_gtfs = list_gtfs,
+stops_in_or_near_areas = stops_in_or_near_areas,
+ start_date_ymd = "2023-04-27",
+ end_date_ymd = "2023-05-03",
+verbose = TRUE)
+
+write.csv(victoria_total_SI_SA1_230427_by_day_hour_route_type, "results/victoria_total_SI_SA1_230427_by_day_hour_route_type_vic2.csv")
+
+
+victoria_total_SI_SA1_230427_aggregated <- victoria_total_SI_SA1_230427_by_day_hour_route_type %>% 
+           group_by(area_id) %>%    
+           summarize(SI = sum(SI))
+
+write.csv(victoria_total_SI_SA1_230427_aggregated, "results/victoria_total_SI_SA1_230427_aggregated_vic2.csv")
+
+```
+
+```{r vic3, echo=TRUE, eval=FALSE}
+
+vic3 <- convert_ptv_to_tidy_gtfs(vic3)
+tidytransit::write_gtfs(vic3, "data/vic3_as_tidy.zip")
+
+
+list_gtfs <- gtfs_by_route_type("data/vic3_as_tidy.zip")
+
+
+areas_of_interest <- load_areas_of_interest(absmapsdata::sa12021 %>% 
+            dplyr::filter(state_name_2021 ==  "Victoria") %>% 
+                                             dplyr::select(sa1_code_2021),  
+                                           area_id_field = "sa1_code_2021")
+
+buffer_distance <- gtfssupplyindex:::load_buffer_zones()
+
+stops_in_or_near_areas <- gtfssupplyindex:::stops_in_walk_dist(
+ list_gtfs = list_gtfs, 
+ areas_of_interest = areas_of_interest,
+ EPSG_for_transform = 28355,
+ verbose = FALSE
+)
+
+####----run SI.calc function to build si_by_mode_and_time list (by route_type) of tables
+
+victoria_total_SI_SA1_230427_by_day_hour_route_type <- SI_by_day_hour_and_route_type(
+     list_gtfs = list_gtfs,
+stops_in_or_near_areas = stops_in_or_near_areas,
+ start_date_ymd = "2023-04-27",
+ end_date_ymd = "2023-05-03",
+verbose = TRUE)
+
+write.csv(victoria_total_SI_SA1_230427_by_day_hour_route_type, "results/victoria_total_SI_SA1_230427_by_day_hour_route_type_vic3.csv")
+
+
+victoria_total_SI_SA1_230427_aggregated <- victoria_total_SI_SA1_230427_by_day_hour_route_type %>% 
+           group_by(area_id) %>%    
+           summarize(SI = sum(SI))
+
+write.csv(victoria_total_SI_SA1_230427_aggregated, "results/victoria_total_SI_SA1_230427_aggregated_vic3.csv")
+
+```
+
+```{r vic4, echo=TRUE, eval=FALSE}
+
+
+vic4 <- convert_ptv_to_tidy_gtfs(vic4)
+tidytransit::write_gtfs(vic4, "data/vic4_as_tidy.zip")
+
+
+list_gtfs <- gtfs_by_route_type("data/vic4_as_tidy.zip")
+
+areas_of_interest <- load_areas_of_interest(absmapsdata::sa12021 %>% 
+            dplyr::filter(state_name_2021 ==  "Victoria") %>% 
+                                             dplyr::select(sa1_code_2021),  
+                                           area_id_field = "sa1_code_2021")
+
+buffer_distance <- gtfssupplyindex:::load_buffer_zones()
+
+stops_in_or_near_areas <- gtfssupplyindex:::stops_in_walk_dist(
+ list_gtfs = list_gtfs, 
+ areas_of_interest = areas_of_interest,
+ EPSG_for_transform = 28355,
+ verbose = FALSE
+)
+
+####----run SI.calc function to build si_by_mode_and_time list (by route_type) of tables
+
+victoria_total_SI_SA1_230427_by_day_hour_route_type <- SI_by_day_hour_and_route_type(
+     list_gtfs = list_gtfs,
+stops_in_or_near_areas = stops_in_or_near_areas,
+ start_date_ymd = "2023-04-27",
+ end_date_ymd = "2023-05-03",
+verbose = TRUE)
+
+write.csv(victoria_total_SI_SA1_230427_by_day_hour_route_type, "results/victoria_total_SI_SA1_230427_by_day_hour_route_type_vic4.csv")
+
+
+victoria_total_SI_SA1_230427_aggregated <- victoria_total_SI_SA1_230427_by_day_hour_route_type %>% 
+           group_by(area_id) %>%    
+           summarize(SI = sum(SI))
+
+write.csv(victoria_total_SI_SA1_230427_aggregated, "results/victoria_total_SI_SA1_230427_aggregated_vic4.csv")
+
+```
+
+```{r vic5, echo=TRUE, eval=FALSE}
 
 
 
+vic5 <- convert_ptv_to_tidy_gtfs(vic5)
+tidytransit::write_gtfs(vic5, "data/vic5_as_tidy.zip")
 
+
+list_gtfs <- gtfs_by_route_type("data/vic5_as_tidy.zip")
+
+areas_of_interest <- load_areas_of_interest(absmapsdata::sa12021 %>% 
+            dplyr::filter(state_name_2021 ==  "Victoria") %>% 
+                                             dplyr::select(sa1_code_2021),  
+                                           area_id_field = "sa1_code_2021")
+
+buffer_distance <- gtfssupplyindex:::load_buffer_zones()
+
+stops_in_or_near_areas <- gtfssupplyindex:::stops_in_walk_dist(
+ list_gtfs = list_gtfs, 
+ areas_of_interest = areas_of_interest,
+ EPSG_for_transform = 28355,
+ verbose = FALSE
+)
+
+####----run SI.calc function to build si_by_mode_and_time list (by route_type) of tables
+
+victoria_total_SI_SA1_230427_by_day_hour_route_type <- SI_by_day_hour_and_route_type(
+     list_gtfs = list_gtfs,
+stops_in_or_near_areas = stops_in_or_near_areas,
+ start_date_ymd = "2023-04-27",
+ end_date_ymd = "2023-05-03",
+verbose = TRUE)
+
+write.csv(victoria_total_SI_SA1_230427_by_day_hour_route_type, "results/victoria_total_SI_SA1_230427_by_day_hour_route_type_vic5.csv")
+
+
+victoria_total_SI_SA1_230427_aggregated <- victoria_total_SI_SA1_230427_by_day_hour_route_type %>% 
+           group_by(area_id) %>%    
+           summarize(SI = sum(SI))
+
+write.csv(victoria_total_SI_SA1_230427_aggregated, "results/victoria_total_SI_SA1_230427_aggregated_vic5.csv")
+
+```
+
+```{r vic6, echo=TRUE, eval=FALSE}
+
+vic6 <- convert_ptv_to_tidy_gtfs(vic6)
+tidytransit::write_gtfs(vic6, "data/vic6_as_tidy.zip")
+
+
+list_gtfs <- gtfs_by_route_type("data/vic6_as_tidy.zip")
+
+
+
+list_gtfs <- gtfs_by_route_type("data/6google_transit.zip")
+
+areas_of_interest <- load_areas_of_interest(absmapsdata::sa12021 %>% 
+            dplyr::filter(state_name_2021 ==  "Victoria") %>% 
+                                             dplyr::select(sa1_code_2021),  
+                                           area_id_field = "sa1_code_2021")
+
+buffer_distance <- gtfssupplyindex:::load_buffer_zones()
+
+stops_in_or_near_areas <- gtfssupplyindex:::stops_in_walk_dist(
+ list_gtfs = list_gtfs, 
+ areas_of_interest = areas_of_interest,
+ EPSG_for_transform = 28355,
+ verbose = FALSE
+)
+
+####----run SI.calc function to build si_by_mode_and_time list (by route_type) of tables
+
+victoria_total_SI_SA1_230427_by_day_hour_route_type <- SI_by_day_hour_and_route_type(
+     list_gtfs = list_gtfs,
+stops_in_or_near_areas = stops_in_or_near_areas,
+ start_date_ymd = "2023-04-27",
+ end_date_ymd = "2023-05-03",
+verbose = TRUE)
+
+write.csv(victoria_total_SI_SA1_230427_by_day_hour_route_type, "results/victoria_total_SI_SA1_230427_by_day_hour_route_type_vic6.csv")
+
+
+victoria_total_SI_SA1_230427_aggregated <- victoria_total_SI_SA1_230427_by_day_hour_route_type %>% 
+           group_by(area_id) %>%    
+           summarize(SI = sum(SI))
+
+write.csv(victoria_total_SI_SA1_230427_aggregated, "results/victoria_total_SI_SA1_230427_aggregated_vic6.csv")
+
+```
+
+```{r vic7, echo=TRUE, eval=FALSE}
+
+
+vic7 <- convert_ptv_to_tidy_gtfs(vic7)
+tidytransit::write_gtfs(vic7, "data/vic7_as_tidy.zip")
+
+
+list_gtfs <- gtfs_by_route_type("data/vic7_as_tidy.zip")
+
+areas_of_interest <- load_areas_of_interest(absmapsdata::sa12021 %>% 
+            dplyr::filter(state_name_2021 ==  "Victoria") %>% 
+                                             dplyr::select(sa1_code_2021),  
+                                           area_id_field = "sa1_code_2021")
+
+buffer_distance <- gtfssupplyindex:::load_buffer_zones()
+
+stops_in_or_near_areas <- gtfssupplyindex:::stops_in_walk_dist(
+ list_gtfs = list_gtfs, 
+ areas_of_interest = areas_of_interest,
+ EPSG_for_transform = 28355,
+ verbose = FALSE
+)
+
+####----run SI.calc function to build si_by_mode_and_time list (by route_type) of tables
+
+victoria_total_SI_SA1_230427_by_day_hour_route_type <- SI_by_day_hour_and_route_type(
+     list_gtfs = list_gtfs,
+stops_in_or_near_areas = stops_in_or_near_areas,
+ start_date_ymd = "2023-04-27",
+ end_date_ymd = "2023-05-03",
+verbose = TRUE)
+
+write.csv(victoria_total_SI_SA1_230427_by_day_hour_route_type, "results/victoria_total_SI_SA1_230427_by_day_hour_route_type_vic7.csv")
+
+
+victoria_total_SI_SA1_230427_aggregated <- victoria_total_SI_SA1_230427_by_day_hour_route_type %>% 
+           group_by(area_id) %>%    
+           summarize(SI = sum(SI))
+
+write.csv(victoria_total_SI_SA1_230427_aggregated, "results/victoria_total_SI_SA1_230427_aggregated_vic7.csv")
+
+```
+
+```{r vic8, echo=TRUE, eval=FALSE}
+
+
+vic8 <- convert_ptv_to_tidy_gtfs(vic8)
+tidytransit::write_gtfs(vic8, "data/vic8_as_tidy.zip")
+
+
+list_gtfs <- gtfs_by_route_type("data/vic8_as_tidy.zip")
+
+
+areas_of_interest <- load_areas_of_interest(absmapsdata::sa12021 %>% 
+            dplyr::filter(state_name_2021 ==  "Victoria") %>% 
+                                             dplyr::select(sa1_code_2021),  
+                                           area_id_field = "sa1_code_2021")
+
+buffer_distance <- gtfssupplyindex:::load_buffer_zones()
+
+stops_in_or_near_areas <- gtfssupplyindex:::stops_in_walk_dist(
+ list_gtfs = list_gtfs, 
+ areas_of_interest = areas_of_interest,
+ EPSG_for_transform = 28355,
+ verbose = FALSE
+)
+
+####----run SI.calc function to build si_by_mode_and_time list (by route_type) of tables
+
+victoria_total_SI_SA1_230427_by_day_hour_route_type <- SI_by_day_hour_and_route_type(
+     list_gtfs = list_gtfs,
+stops_in_or_near_areas = stops_in_or_near_areas,
+ start_date_ymd = "2023-04-27",
+ end_date_ymd = "2023-05-03",
+verbose = TRUE)
+
+write.csv(victoria_total_SI_SA1_230427_by_day_hour_route_type, "results/victoria_total_SI_SA1_230427_by_day_hour_route_type_vic8.csv")
+
+
+victoria_total_SI_SA1_230427_aggregated <- victoria_total_SI_SA1_230427_by_day_hour_route_type %>% 
+           group_by(area_id) %>%    
+           summarize(SI = sum(SI))
+
+write.csv(victoria_total_SI_SA1_230427_aggregated, "results/victoria_total_SI_SA1_230427_aggregated_vic8.csv")
+
+```
+
+```{r vic10, echo=TRUE, eval=FALSE}
+
+
+vic10 <- convert_ptv_to_tidy_gtfs(vic10)
+tidytransit::write_gtfs(vic10, "data/vic10_as_tidy.zip")
+
+
+list_gtfs <- gtfs_by_route_type("data/vic10_as_tidy.zip")
+
+
+areas_of_interest <- load_areas_of_interest(absmapsdata::sa12021 %>% 
+            dplyr::filter(state_name_2021 ==  "Victoria") %>% 
+                                             dplyr::select(sa1_code_2021),  
+                                           area_id_field = "sa1_code_2021")
+
+buffer_distance <- gtfssupplyindex:::load_buffer_zones()
+
+stops_in_or_near_areas <- gtfssupplyindex:::stops_in_walk_dist(
+ list_gtfs = list_gtfs, 
+ areas_of_interest = areas_of_interest,
+ EPSG_for_transform = 28355,
+ verbose = FALSE
+)
+
+####----run SI.calc function to build si_by_mode_and_time list (by route_type) of tables
+
+victoria_total_SI_SA1_230427_by_day_hour_route_type <- SI_by_day_hour_and_route_type(
+     list_gtfs = list_gtfs,
+stops_in_or_near_areas = stops_in_or_near_areas,
+ start_date_ymd = "2023-04-27",
+ end_date_ymd = "2023-05-03",
+verbose = TRUE)
+
+write.csv(victoria_total_SI_SA1_230427_by_day_hour_route_type, "results/victoria_total_SI_SA1_230427_by_day_hour_route_type_vic10.csv")
+
+
+victoria_total_SI_SA1_230427_aggregated <- victoria_total_SI_SA1_230427_by_day_hour_route_type %>% 
+           group_by(area_id) %>%    
+           summarize(SI = sum(SI))
+
+write.csv(victoria_total_SI_SA1_230427_aggregated, "results/victoria_total_SI_SA1_230427_aggregated_vic10.csv")
+
+```
+
+```{r vic11, echo=TRUE, eval=FALSE}
+
+vic11 <- convert_ptv_to_tidy_gtfs(vic11)
+tidytransit::write_gtfs(vic11, "data/vic11_as_tidy.zip")
+
+
+list_gtfs <- gtfs_by_route_type("data/vic11_as_tidy.zip")
+
+
+areas_of_interest <- load_areas_of_interest(absmapsdata::sa12021 %>% 
+            dplyr::filter(state_name_2021 ==  "Victoria") %>% 
+                                             dplyr::select(sa1_code_2021),  
+                                           area_id_field = "sa1_code_2021")
+
+buffer_distance <- gtfssupplyindex:::load_buffer_zones()
+
+stops_in_or_near_areas <- gtfssupplyindex:::stops_in_walk_dist(
+ list_gtfs = list_gtfs, 
+ areas_of_interest = areas_of_interest,
+ EPSG_for_transform = 28355,
+ verbose = FALSE
+)
+
+####----run SI.calc function to build si_by_mode_and_time list (by route_type) of tables
+
+victoria_total_SI_SA1_230427_by_day_hour_route_type <- SI_by_day_hour_and_route_type(
+     list_gtfs = list_gtfs,
+stops_in_or_near_areas = stops_in_or_near_areas,
+ start_date_ymd = "2023-04-27",
+ end_date_ymd = "2023-05-03",
+verbose = TRUE)
+
+write.csv(victoria_total_SI_SA1_230427_by_day_hour_route_type, "results/victoria_total_SI_SA1_230427_by_day_hour_route_type_vic11.csv")
+
+
+victoria_total_SI_SA1_230427_aggregated <- victoria_total_SI_SA1_230427_by_day_hour_route_type %>% 
+           group_by(area_id) %>%    
+           summarize(SI = sum(SI))
+
+write.csv(victoria_total_SI_SA1_230427_aggregated, "results/victoria_total_SI_SA1_230427_aggregated_vic11.csv")
+
+```
+
+```{r load_results, echo=TRUE}
+vic1 <- read_csv("results/victoria_total_SI_SA1_230427_aggregated_vic1.csv")
+vic2 <- read_csv("results/victoria_total_SI_SA1_230427_aggregated_vic2.csv")
+vic3 <- read_csv("results/victoria_total_SI_SA1_230427_aggregated_vic3.csv")
+vic4 <- read_csv("results/victoria_total_SI_SA1_230427_aggregated_vic4.csv")
+vic5 <- read_csv("results/victoria_total_SI_SA1_230427_aggregated_vic5.csv")
+vic6 <- read_csv("results/victoria_total_SI_SA1_230427_aggregated_vic6.csv")
+vic7 <- read_csv("results/victoria_total_SI_SA1_230427_aggregated_vic7.csv")
+vic8 <- read_csv("results/victoria_total_SI_SA1_230427_aggregated_vic8.csv")
+vic10 <- read_csv("results/victoria_total_SI_SA1_230427_aggregated_vic10.csv")
+vic11 <- read_csv("results/victoria_total_SI_SA1_230427_aggregated_vic11.csv")
+
+```
+
+REMEMBER TO CHECK BUFFER DISTANCES....
 
 # Discussion and conclusions
 
